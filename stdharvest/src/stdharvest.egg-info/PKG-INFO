@@ -1,0 +1,256 @@
+Metadata-Version: 2.4
+Name: stdharvest
+Version: 1.0.0
+Summary: 3GPP / IEEE standard document batch downloader and PDF/HTML converter
+Author: stdharvest maintainers
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: openpyxl>=3.1.2
+Requires-Dist: requests>=2.31.0
+Requires-Dist: mammoth>=1.6.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4; extra == "dev"
+
+# stdharvest
+
+3GPP / IEEE 標準文書を Excel から一括ダウンロードし、整理されたフォルダ構成で
+保存・PDF 化・HTML 化するツールです（仕様 v1.0 準拠）。
+
+- 1 回の実行では **3GPP のみ** または **IEEE のみ** を処理します（混在不可）
+- 工程ごとに一括並列化（ダウンロード / ZIP 解凍 / PDF 化 / 個別 HTML 化）
+- Excel への書き戻しは **最後に 1 回だけ** 実行
+- PDF 化は LibreOffice headless（ワーカーごとに一時プロファイル分離）
+- `.docx` のみ本文を簡易 HTML 化、それ以外は PDF と元ファイルへのリンク表示
+
+---
+
+## 1. ツール概要
+
+```
+Excel 読込 → Settings 読込 → SourceType 確認 → Office アプリ終了
+ → 並列ダウンロード → サイズ判定（生）
+ → （3GPP のみ）並列 ZIP 解凍 → サイズ判定（解凍後）
+ → 処理対象ファイル一覧作成
+ → 並列 PDF 化 → 並列個別 HTML 化
+ → 5 件単位の Combine HTML 生成 → index.html 生成
+ → ログ CSV/JSON 出力 → Excel 一括書き戻し
+```
+
+## 2. 対象処理
+
+- 文書 ZIP / Word / PowerPoint / PDF のダウンロード
+- 3GPP ZIP の解凍
+- Word/PowerPoint/Excel 等の LibreOffice による PDF 化
+- 個別 HTML（閲覧導線ページ）と 5 件単位 Combine HTML、index.html の生成
+- CSV / JSON によるログ出力
+- Excel への結果書き戻し
+
+## 3. 非対象処理
+
+以下は **本ツールでは行いません**（別プログラムに委譲）。
+
+- テキスト抽出
+- キーワード抽出
+- 文節単位の単語抽出
+- 全文検索インデックス作成
+- 自然言語解析
+
+## 4. 事前準備
+
+### 4.1 Python
+
+- Python 3.10 以降
+
+依存ライブラリのインストール（編集可能インストール推奨）:
+
+```powershell
+python -m pip install -U pip
+python -m pip install -e .
+```
+
+主な依存:
+
+- `openpyxl`（Excel 読み書き）
+- `requests`（HTTP）
+- `mammoth`（.docx → HTML 本文）
+
+### 4.2 LibreOffice
+
+PDF 化に **LibreOffice** を使用します。Windows では既定のインストールパス
+(`C:\Program Files\LibreOffice\program\soffice.exe`) を自動探索します。
+明示的に指定する場合は環境変数 `STDHARVEST_SOFFICE` に `soffice.exe` の
+フルパスを設定してください。
+
+> LibreOffice がインストールされていない環境では PDF 化処理が失敗として
+> 記録されますが、ダウンロード・HTML 化・ログ出力は継続します。
+
+### 4.3 実行前のお願い（重要）
+
+- **実行前に Excel / Word / PowerPoint は保存して閉じてください。**
+- 本ツールは安定化のため、`KillOfficeAppsBeforeRun=yes`（初期値）の場合に
+  実行開始時に `WINWORD.EXE` / `POWERPNT.EXE` / `EXCEL.EXE` /
+  `soffice.exe` / `soffice.bin` / `oosplash.exe` を **強制終了** します。
+- **未保存ファイルがある場合、内容が失われる可能性があります**。
+
+Office プロセスを終了させたくない場合は、`Sheet2!B10` を `no` にしてください。
+
+## 5. Excel 仕様
+
+### 5.1 Sheet1: Download
+
+| セル | 項目              | 例                          |
+|------|-------------------|-----------------------------|
+| B1   | SourceType        | `3gpp` / `ieee`             |
+| B2   | OutputRootFolder  | `C:\Users\xxx\std_docs`     |
+| B3   | JobName           | `RAN1_daily_download`       |
+
+明細は **5 行目以降** に記入します。C 列には表示文字列にハイパーリンクを付与
+してください（Python は `cell.hyperlink.target` から URL を取得します）。
+
+| 列 | 項目        | 入力者 | 用途                                |
+|----|-------------|--------|-------------------------------------|
+| C  | Link        | ユーザー | ハイパーリンク付き文書タイトル       |
+| D  | Status      | Python | 処理結果                            |
+| E  | SavedPath   | Python | 保存先パス                          |
+| F  | Message     | Python | 補足・エラー内容                    |
+| G  | LastRunAt   | Python | 最終実行日時 `YYYY-MM-DD HH:MM:SS`  |
+
+### 5.2 Sheet2: Settings
+
+| セル | 項目                    | 初期値 | 備考                               |
+|------|-------------------------|--------|------------------------------------|
+| B1   | ProxyURL                | 空欄   | 例: `http://proxy.local:8080`      |
+| B2   | TimeoutSec              | 60     |                                    |
+| B3   | RetryCount              | 3      |                                    |
+| B4   | SleepSec                | 0.5    | ダウンロード間隔                   |
+| B5   | OverwriteExisting       | no     | `yes` / `no`                       |
+| B6   | MinFileSizeKB           | 10     |                                    |
+| B7   | MaxFileSizeMB           | 100    |                                    |
+| B8   | OnTooSmallFile          | error  | `error` / `skip`                   |
+| B9   | OnTooLargeFile          | skip   | `skip` / `pdf_only` / `keep_raw`   |
+| B10  | KillOfficeAppsBeforeRun | yes    | `yes` / `no`                       |
+| B11  | DownloadWorkers         | 8      |                                    |
+| B12  | UnzipWorkers            | 4      |                                    |
+| B13  | PdfWorkers              | 2      | LibreOffice 競合回避のため小さめ   |
+| B14  | HtmlWorkers             | 6      |                                    |
+| B15  | CombineHtmlBatchSize    | 5      | Combine HTML 1 ファイルあたり件数  |
+
+サンプルは `samples/sample_download.xlsx` を参照してください
+（`python scripts/build_sample_xlsx.py` で再生成できます）。
+
+## 6. 実行方法
+
+```powershell
+# インストール済みの場合
+stdharvest run --excel samples/sample_download.xlsx
+
+# もしくはモジュール形式
+python -m stdharvest.cli run --excel samples/sample_download.xlsx
+```
+
+オプション:
+
+- `--verbose` : DEBUG レベルのログを出力
+
+## 7. 出力フォルダ仕様
+
+`OutputRootFolder` の下に `YYYYMMDD_JobName/` が作成されます。
+
+```
+YYYYMMDD_JobName/
+  raw/                          # ダウンロードした原本
+    001_<title>/original.zip    # 3GPP は ZIP
+  unpacked/                     # 3GPP のみ（IEEE では作られない）
+    001_<title>/*.docx          # ZIP 解凍後ファイル
+  pdf/
+    001_<title>/*.pdf           # PDF 化済み
+  html/
+    files/
+      001_<title>/index.html    # 個別 HTML
+    combined/
+      combined_001_005.html     # 5 件単位の Combine HTML
+      combined_006_010.html
+    index.html                  # 全体目次
+  logs/
+    row_results.csv
+    file_results.csv
+    combined_html.csv
+    manifest.json
+```
+
+## 8. Status 一覧
+
+| Status             | 意味                           | 次回実行時の扱い |
+|--------------------|--------------------------------|------------------|
+| 空欄               | 未処理                         | 実行する         |
+| `DONE`             | 完了                           | スキップ         |
+| `SKIPPED`          | 既存ファイル等でスキップ       | スキップ         |
+| `ERROR`            | エラー                         | 再実行する       |
+| `RETRY`            | 再実行指定（手動記入）         | 実行する         |
+| `ERROR_TOO_SMALL`  | ファイルサイズ小さすぎ         | 再実行する       |
+| `DONE_WITH_SKIP`   | 一部スキップありの完了         | スキップ         |
+
+## 9. ファイルサイズ判定
+
+ダウンロード直後と ZIP 解凍後（3GPP のみ）の 2 段階で判定します。
+
+| 判定        | 条件                     | 小さい時 (`OnTooSmallFile`)            | 大きい時 (`OnTooLargeFile`)                                      |
+|-------------|--------------------------|----------------------------------------|------------------------------------------------------------------|
+| TOO_SMALL   | `size < MinFileSizeKB`   | `error`→`ERROR_TOO_SMALL` / `skip`→スキップ | -                                                                |
+| TOO_LARGE   | `size > MaxFileSizeMB`   | -                                      | `skip`→PDF/HTML なし / `pdf_only`→PDF のみ / `keep_raw`→原本のみ |
+
+## 10. Office アプリ終了に関する注意
+
+- 実行前に Excel / Word / PowerPoint を保存して閉じてください。
+- `Sheet2!B10 = yes`（初期値）の場合、実行開始時に以下を強制終了します:
+  - Windows: `WINWORD.EXE` / `POWERPNT.EXE` / `EXCEL.EXE` /
+    `soffice.exe` / `soffice.bin` / `oosplash.exe`
+  - Linux/macOS: `soffice` 系プロセス
+- 未保存ファイルは失われる可能性があります。
+
+## 11. よくあるエラー
+
+| 症状                                               | 対処                                                       |
+|----------------------------------------------------|------------------------------------------------------------|
+| `Sheet1!B1 must be one of ['3gpp', 'ieee']`        | `Sheet1!B1` を `3gpp` か `ieee` にする                    |
+| `LibreOffice (soffice) not found in PATH`          | LibreOffice をインストール、または `STDHARVEST_SOFFICE` 設定 |
+| `Status=ERROR_TOO_SMALL`                           | 認証 HTML などを掴んでいる可能性。URL と設定を確認           |
+| `Status=ERROR` / `HTTP 404`                        | URL の差し替え、プロキシ / ネットワーク確認                 |
+| Excel 書き戻しで PermissionError                    | Excel を閉じてから再実行                                    |
+
+## 12. 再実行方法
+
+- 再実行したい行の Status を空欄 / `ERROR` / `RETRY` / `ERROR_TOO_SMALL` のいずれかにする
+- `DONE` / `SKIPPED` / `DONE_WITH_SKIP` の行はスキップされる
+- 既存 raw ファイルを再取得したい場合は `OverwriteExisting=yes`
+
+---
+
+## プロジェクト構成
+
+```
+stdharvest/
+  README.md
+  pyproject.toml
+  samples/
+    sample_download.xlsx
+  scripts/
+    build_sample_xlsx.py
+  src/
+    stdharvest/
+      __init__.py
+      cli.py
+      excel_io.py
+      models.py
+      office_killer.py
+      downloader.py
+      size_check.py
+      unzipper.py
+      pdf_converter.py
+      html_builder.py
+      logger.py
+      utils.py
+```
+
+各モジュールの責務は仕様書 17 章に準拠しています。

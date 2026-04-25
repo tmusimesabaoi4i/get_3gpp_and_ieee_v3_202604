@@ -16,10 +16,35 @@
 
 クイックスタート (`stdharvest`):
 
+リポジトリ直下（この `README.md` があるフォルダ）を例にします。
+
+1. **仮想環境の作成**（未作成の場合）
+
+```powershell
+python -m venv .venv
+```
+
+2. **仮想環境の有効化（入室）**
+
+```powershell
+# PowerShell
+.\.venv\Scripts\Activate.ps1
+```
+
+コマンドプロンプトの場合は `.\.venv\Scripts\activate.bat`、Linux / macOS の場合は `source .venv/bin/activate` です。
+
+3. **仮想環境内で** `stdharvest` をインストールして実行
+
 ```powershell
 cd stdharvest
 python -m pip install -e .
 stdharvest run --excel samples/sample_download.xlsx
+```
+
+4. **仮想環境の無効化（退室）**
+
+```powershell
+deactivate
 ```
 
 > Windows で Microsoft Office (Word / PowerPoint / Excel) が利用可能な場合は
@@ -28,8 +53,33 @@ stdharvest run --excel samples/sample_download.xlsx
 
 クイックスタート (`stdsearch`):
 
+リポジトリ直下（この `README.md` があるフォルダ）を例にします。
+
+1. **仮想環境の作成**（未作成の場合）
+
+```powershell
+python -m venv .venv
+```
+
+2. **仮想環境の有効化（入室）**
+
+```powershell
+# PowerShell
+.\.venv\Scripts\Activate.ps1
+```
+
+コマンドプロンプトの場合は `.\.venv\Scripts\activate.bat`、Linux / macOS の場合は `source .venv/bin/activate` です。
+
+3. **仮想環境内で** `stdsearch` をインストールして実行
+
 ```powershell
 cd stdsearch
 python -m pip install -e .
 stdsearch run --excel samples/sample_search.xlsx
+```
+
+4. **仮想環境の無効化（退室）**
+
+```powershell
+deactivate
 ```

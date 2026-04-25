@@ -92,6 +92,10 @@ class JobContext:
         return self.html_dir / "combined"
 
     @property
+    def html_combine_full_dir(self) -> Path:
+        return self.html_dir / "combine_full"
+
+    @property
     def logs_dir(self) -> Path:
         return self.job_folder / "logs"
 
@@ -149,4 +153,15 @@ class CombinedBatch:
     first_seq: int
     last_seq: int
     combined_html_path: Path
+    file_count: int
+
+
+@dataclass
+class CombineFullBatch:
+    """A combine_full bundle: per-N inlined-body view (default N=5)."""
+
+    batch_no: int
+    first_seq: int
+    last_seq: int
+    combine_full_path: Path
     file_count: int

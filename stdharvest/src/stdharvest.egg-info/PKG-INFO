@@ -9,6 +9,8 @@ Description-Content-Type: text/markdown
 Requires-Dist: openpyxl>=3.1.2
 Requires-Dist: requests>=2.31.0
 Requires-Dist: mammoth>=1.6.0
+Requires-Dist: beautifulsoup4>=4.12.0
+Requires-Dist: pywin32>=306; sys_platform == "win32"
 Provides-Extra: dev
 Requires-Dist: pytest>=7.4; extra == "dev"
 
@@ -21,7 +23,8 @@ Requires-Dist: pytest>=7.4; extra == "dev"
 - 工程ごとに一括並列化（ダウンロード / ZIP 解凍 / PDF 化 / 個別 HTML 化）
 - Excel への書き戻しは **最後に 1 回だけ** 実行
 - PDF 化は LibreOffice headless（ワーカーごとに一時プロファイル分離）
-- `.docx` のみ本文を簡易 HTML 化、それ以外は PDF と元ファイルへのリンク表示
+- `.docx` は本文を簡易 HTML 化、PowerPoint はスライド画像化 + テキスト抽出で HTML 化
+- それ以外は PDF と元ファイルへのリンク表示
 
 ---
 
@@ -75,15 +78,21 @@ python -m pip install -e .
 - `requests`（HTTP）
 - `mammoth`（.docx → HTML 本文）
 
-### 4.2 LibreOffice
+### 4.2 PDF 化エンジン
 
-PDF 化に **LibreOffice** を使用します。Windows では既定のインストールパス
-(`C:\Program Files\LibreOffice\program\soffice.exe`) を自動探索します。
-明示的に指定する場合は環境変数 `STDHARVEST_SOFFICE` に `soffice.exe` の
-フルパスを設定してください。
+PDF 化には以下を使用します（優先順位順）:
 
-> LibreOffice がインストールされていない環境では PDF 化処理が失敗として
-> 記録されますが、ダウンロード・HTML 化・ログ出力は継続します。
+1. **Microsoft Office** (Windows): Word / PowerPoint / Excel の COM オートメーション
+2. **LibreOffice** (フォールバック): `soffice --headless`
+
+Windows で Microsoft Office がインストールされていれば、自動的に Office を使用します。
+Office が利用できない場合は LibreOffice にフォールバックします。
+
+LibreOffice のパスを明示的に指定する場合は環境変数 `STDHARVEST_SOFFICE` に
+`soffice.exe` のフルパスを設定してください。
+
+> どちらも利用できない環境では PDF 化処理が失敗として記録されますが、
+> ダウンロード・HTML 化・ログ出力は継続します。
 
 ### 4.3 実行前のお願い（重要）
 
@@ -136,8 +145,10 @@ Office プロセスを終了させたくない場合は、`Sheet2!B10` を `no` 
 | B14  | HtmlWorkers             | 6      |                                    |
 | B15  | CombineHtmlBatchSize    | 5      | Combine HTML 1 ファイルあたり件数  |
 
-サンプルは `samples/sample_download.xlsx` を参照してください
-（`python scripts/build_sample_xlsx.py` で再生成できます）。
+サンプルは `samples/sample_download.xlsx` を参照してください。
+サンプル生成スクリプト:
+- 3GPP 用: `python scripts/build_sample_3gpp.py`
+- IEEE 用: `python scripts/build_sample_ieee.py`
 
 ## 6. 実行方法
 
@@ -214,9 +225,10 @@ YYYYMMDD_JobName/
 | 症状                                               | 対処                                                       |
 |----------------------------------------------------|------------------------------------------------------------|
 | `Sheet1!B1 must be one of ['3gpp', 'ieee']`        | `Sheet1!B1` を `3gpp` か `ieee` にする                    |
-| `LibreOffice (soffice) not found in PATH`          | LibreOffice をインストール、または `STDHARVEST_SOFFICE` 設定 |
+| `No PDF converter available`                       | Microsoft Office または LibreOffice をインストール          |
 | `Status=ERROR_TOO_SMALL`                           | 認証 HTML などを掴んでいる可能性。URL と設定を確認           |
 | `Status=ERROR` / `HTTP 404`                        | URL の差し替え、プロキシ / ネットワーク確認                 |
+| `HTTP 418` (IEEE)                                  | ブラウザ風ヘッダーは実装済み。それでも発生する場合は時間をおいて再試行 |
 | Excel 書き戻しで PermissionError                    | Excel を閉じてから再実行                                    |
 
 ## 12. 再実行方法
@@ -236,7 +248,8 @@ stdharvest/
   samples/
     sample_download.xlsx
   scripts/
-    build_sample_xlsx.py
+    build_sample_3gpp.py
+    build_sample_ieee.py
   src/
     stdharvest/
       __init__.py

@@ -10,7 +10,12 @@ from typing import List, Tuple
 from . import models
 from .downloader import download_all
 from .excel_io import read_excel, write_back
-from .html_builder import build_combined_html, build_index_html, build_individual_html
+from .html_builder import (
+    build_combine_full_html,
+    build_combined_html,
+    build_index_html,
+    build_individual_html,
+)
 from .logger import (
     write_combined_html_csv,
     write_file_results,
@@ -327,12 +332,17 @@ def run(excel_path: Path) -> int:
     logger.info("Generating combined HTML (batch size %d)", settings.combine_html_batch_size)
     batches = build_combined_html(files, job, settings)
 
+    full_targets = [pf for pf in html_targets if pf.html_path and pf.html_path.exists()]
+    combine_full_batches = build_combine_full_html(full_targets, job, settings)
+
     _finalize_rows(data.rows, files, settings)
 
     summary = _summary(data.rows, files)
     logger.info("Summary: %s", summary)
 
-    index_path = build_index_html(job, files, batches, summary)
+    index_path = build_index_html(
+        job, files, batches, summary, combine_full_batches=combine_full_batches,
+    )
     logger.info("index.html written: %s", index_path)
 
     write_row_results(data.rows + data.skipped_rows, job.logs_dir)

@@ -3,15 +3,21 @@ from __future__ import annotations
 
 import html
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable, List, Optional
+from urllib.parse import urlsplit
 
 from . import models
-from .models import CombinedBatch, JobContext, ProcessedFile, Settings
+from .models import CombinedBatch, CombineFullBatch, JobContext, ProcessedFile, Settings
 from .utils import ensure_dir, human_size, rel_link
 
 logger = logging.getLogger(__name__)
+
+
+# How many files to bundle into one combine_full_NNN.html.
+COMBINE_FULL_CHUNK_SIZE = 5
 
 
 # Extensions we try to embed as HTML body (best-effort; PDF is authoritative).
@@ -321,6 +327,7 @@ def build_index_html(
     files: List[ProcessedFile],
     batches: List[CombinedBatch],
     summary: dict,
+    combine_full_batches: Optional[List[CombineFullBatch]] = None,
 ) -> Path:
     ensure_dir(job.html_dir)
     index_path = job.html_dir / "index.html"
@@ -366,6 +373,22 @@ def build_index_html(
     body.extend(_li_for_batch(b) for b in batches)
     body.append("</ul>")
 
+    if combine_full_batches:
+        def _li_for_full(b: CombineFullBatch) -> str:
+            return (
+                f'<li><a href="{_escape(rel_link(index_path, b.combine_full_path))}">'
+                f'{_escape(b.combine_full_path.name)}</a> '
+                f'<span class="small">({b.first_seq}〜{b.last_seq} 件目 / {b.file_count} files)</span></li>'
+            )
+        body.append('<h2>まとめ全文HTML (combine_full)</h2>')
+        body.append(
+            '<p class="small">クリック不要で本文と画像をまとめて閲覧できます '
+            f'(1ページ {COMBINE_FULL_CHUNK_SIZE} 件ずつ)。</p>'
+        )
+        body.append('<ul class="row-list">')
+        body.extend(_li_for_full(b) for b in combine_full_batches)
+        body.append("</ul>")
+
     body.append('<h2>エラー一覧</h2>')
     if errors:
         body.append('<ul class="row-list error-list">')
@@ -384,3 +407,418 @@ def build_index_html(
 
 def iter_errors(files: Iterable[ProcessedFile]) -> Iterable[ProcessedFile]:
     return (pf for pf in files if pf.status.startswith("ERROR"))
+
+
+# ===================================================================
+# combine_full: per-N HTML with each document's body inlined (no clicks)
+# ===================================================================
+
+_COMBINE_FULL_CSS = """
+body {
+    font-family: "Segoe UI", "Meiryo", "Hiragino Sans", sans-serif;
+    background: #f5f6f8;
+    color: #222;
+    line-height: 1.7;
+    margin: 0;
+    padding: 0;
+}
+header.cf-header {
+    background: #ffffff;
+    padding: 24px 40px;
+    border-bottom: 1px solid #ddd;
+}
+header.cf-header h1 { margin: 0 0 4px 0; }
+header.cf-header p { margin: 0; color: #555; }
+
+nav.cf-toc {
+    max-width: 1100px;
+    margin: 24px auto;
+    padding: 16px 24px;
+    background: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+}
+nav.cf-toc strong { display: block; margin-bottom: 8px; color: #333; }
+nav.cf-toc a {
+    display: inline-block;
+    margin: 4px 8px 4px 0;
+    padding: 4px 10px;
+    background: #eef3ff;
+    color: #2a5bb4;
+    border-radius: 4px;
+    text-decoration: none;
+    font-size: 0.9em;
+}
+nav.cf-toc a:hover { background: #d9e4ff; }
+
+main.cf-main {
+    max-width: 1100px;
+    margin: 32px auto;
+    padding: 0 24px;
+}
+
+.document-block {
+    background: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 40px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.document-block h2 {
+    margin-top: 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e5e5e5;
+}
+.document-meta {
+    font-size: 0.9em;
+    color: #555;
+    margin-bottom: 20px;
+    background: #fafbfc;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 10px 14px;
+}
+.document-meta a { color: #2a6df4; text-decoration: none; margin-right: 12px; }
+.document-meta a:hover { text-decoration: underline; }
+.document-meta .badge {
+    display: inline-block;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    margin-right: 0.25rem;
+    background: #eef;
+    color: #335;
+}
+.document-meta .badge.ok { background: #e6f7ee; color: #1d6c3c; }
+.document-meta .badge.skip { background: #fff4db; color: #7a5d00; }
+.document-meta .badge.err { background: #fde; color: #822; }
+
+.document-content {
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+.document-content img,
+.document-content svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 16px auto;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+}
+.document-content table { max-width: 100%; border-collapse: collapse; }
+.document-content table td, .document-content table th { border: 1px solid #ddd; padding: 4px 8px; }
+.document-content pre, .document-content code { white-space: pre-wrap; word-break: break-word; }
+
+/* PowerPoint slide cards reused from individual HTML */
+.document-content .slide {
+    background: #fafbfc;
+    border: 1px solid #e2e2e2;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+}
+.document-content .slide h3 { margin: 0 0 0.5rem 0; }
+.document-content .slide-image { text-align: center; }
+.document-content .slide-text {
+    background: #fff;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    margin-top: 0.75rem;
+    white-space: pre-wrap;
+}
+.document-content .slide-toc { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 1rem 0; }
+.document-content .slide-toc a {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    background: #eef3ff;
+    color: #2a5bb4;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    text-decoration: none;
+}
+
+.error-box {
+    background: #fff4f4;
+    border: 1px solid #f4c0c0;
+    color: #822;
+    padding: 12px 16px;
+    border-radius: 6px;
+}
+
+.back-to-top {
+    margin-top: 24px;
+    text-align: right;
+    font-size: 0.9em;
+}
+.back-to-top a { color: #2a6df4; text-decoration: none; }
+
+footer.cf-footer {
+    text-align: center;
+    color: #888;
+    font-size: 0.85em;
+    padding: 24px 0 40px 0;
+}
+"""
+
+
+def _is_external_url(url: str) -> bool:
+    if not url:
+        return True
+    if url.startswith("#"):
+        return True
+    if url.startswith("data:"):
+        return True
+    if url.startswith("mailto:") or url.startswith("javascript:"):
+        return True
+    parsed = urlsplit(url)
+    return bool(parsed.scheme)
+
+
+def _rewrite_relative_path(
+    url: str,
+    src_html_file: Path,
+    dst_html_file: Path,
+) -> str:
+    """Convert a relative URL inside `src_html_file` to one usable from `dst_html_file`.
+
+    Anchors, absolute URLs and data: URIs are returned unchanged.
+    """
+    if _is_external_url(url):
+        return url
+    # Split off optional fragment / query for safe path resolution.
+    parsed = urlsplit(url)
+    path_part = parsed.path
+    suffix = ""
+    if parsed.query:
+        suffix += "?" + parsed.query
+    if parsed.fragment:
+        suffix += "#" + parsed.fragment
+    try:
+        absolute = (src_html_file.parent / path_part).resolve()
+    except OSError:
+        return url
+    try:
+        rel = os.path.relpath(absolute, start=dst_html_file.parent)
+    except ValueError:
+        return absolute.as_uri() + suffix
+    return rel.replace(os.sep, "/") + suffix
+
+
+def _scope_anchor(href: str, doc_index: int) -> str:
+    """If href is `#xxx`, prefix with `d{N}-` so multiple inlined docs don't collide."""
+    if href and href.startswith("#") and len(href) > 1:
+        return f"#d{doc_index}-{href[1:]}"
+    return href
+
+
+def _scope_id(value: str, doc_index: int) -> str:
+    if not value:
+        return value
+    return f"d{doc_index}-{value}"
+
+
+def _extract_inlined_body(
+    pf: ProcessedFile,
+    combine_full_path: Path,
+    doc_index: int,
+) -> str:
+    """Read pf.html_path, return the inlined <body> content (HTML string)."""
+    try:
+        from bs4 import BeautifulSoup  # lazy import
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("beautifulsoup4 is required for combine_full") from exc
+
+    if not pf.html_path or not pf.html_path.exists():
+        raise FileNotFoundError(pf.html_path)
+    raw = pf.html_path.read_text(encoding="utf-8", errors="ignore")
+    soup = BeautifulSoup(raw, "html.parser")
+    body = soup.body
+    if body is None:
+        return ""
+
+    # Strip the duplicated header that the individual page already shows
+    # (we render our own document-meta above the inlined content).
+    first_h1 = body.find("h1")
+    if first_h1 is not None:
+        first_h1.decompose()
+    first_meta = body.find("p", class_="meta")
+    if first_meta is not None:
+        first_meta.decompose()
+    first_card = body.find("div", class_="card")
+    if first_card is not None:
+        # Only drop the meta-table card (the one without docx body content).
+        if "docx" not in (first_card.get("class") or []):
+            first_card.decompose()
+
+    src = pf.html_path
+    # Rewrite all relative paths and prefix IDs / fragment links per doc.
+    for tag in body.find_all(True):
+        # Scope IDs so internal anchors don't collide across documents.
+        if tag.has_attr("id"):
+            tag["id"] = _scope_id(tag["id"], doc_index)
+
+        for attr in ("src", "href", "data-src", "poster"):
+            if not tag.has_attr(attr):
+                continue
+            value = tag[attr]
+            if not isinstance(value, str):
+                continue
+            # In-page anchors get scoped to this document's namespace.
+            if value.startswith("#"):
+                tag[attr] = _scope_anchor(value, doc_index)
+                continue
+            try:
+                tag[attr] = _rewrite_relative_path(value, src, combine_full_path)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("failed to rewrite image path: %s (%s)", value, exc)
+
+    # Convert children to HTML (skip the body tag itself).
+    return "".join(str(child) for child in body.children)
+
+
+def _document_block_html(
+    pf: ProcessedFile,
+    combine_full_path: Path,
+    doc_index: int,
+) -> str:
+    """Render one <section class='document-block'> for a ProcessedFile."""
+    title = f"{pf.seq}. {_escape(pf.display_name)}"
+    section_id = f"doc-{doc_index}"
+
+    pdf_link = (
+        f'<a href="{_escape(rel_link(combine_full_path, pf.pdf_path))}">PDFを開く</a>'
+        if pf.pdf_path and pf.pdf_path.exists()
+        else '<span class="small">PDFなし</span>'
+    )
+    raw_link = (
+        f'<a href="{_escape(rel_link(combine_full_path, pf.source_file))}">元ファイル</a>'
+        if pf.source_file.exists()
+        else '<span class="small">元ファイルなし</span>'
+    )
+    indiv_link = (
+        f'<a href="{_escape(rel_link(combine_full_path, pf.html_path))}">個別HTML</a>'
+        if pf.html_path and pf.html_path.exists()
+        else '<span class="small">個別HTMLなし</span>'
+    )
+
+    meta = (
+        f'<div class="document-meta">'
+        f'<div>元ファイル名: <strong>{_escape(pf.display_name)}</strong> '
+        f'· Row {pf.row.row_no} · Seq {pf.seq:03d} '
+        f'· {_status_badge(pf.status)} '
+        f'· {_escape(human_size(pf.size_bytes))}</div>'
+        f'<div>{pdf_link} · {raw_link} · {indiv_link}</div>'
+        f'</div>'
+    )
+
+    try:
+        inlined = _extract_inlined_body(pf, combine_full_path, doc_index)
+    except FileNotFoundError:
+        logger.warning("combine_full failed to include: %s (no individual HTML)", pf.display_name)
+        inlined = '<div class="error-box">この文書のHTML読み込みに失敗しました（個別HTMLが存在しません）。</div>'
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("combine_full failed to include: %s (%s)", pf.display_name, exc)
+        inlined = (
+            f'<div class="error-box">この文書のHTML読み込みに失敗しました: '
+            f'{_escape(exc)}</div>'
+        )
+
+    back = '<p class="back-to-top"><a href="#cf-top">▲ 上部へ戻る</a></p>'
+
+    return (
+        f'<section id="{section_id}" class="document-block">'
+        f'<h2>{title}</h2>'
+        f'{meta}'
+        f'<div class="document-content">{inlined}</div>'
+        f'{back}'
+        f'</section>'
+    )
+
+
+def _combine_full_page(
+    job: JobContext,
+    files: List[ProcessedFile],
+    out_path: Path,
+    batch_no: int,
+    total_batches: int,
+) -> None:
+    title = out_path.stem  # combine_full_001
+    first_seq = files[0].seq
+    last_seq = files[-1].seq
+    toc_links = "".join(
+        f'<a href="#doc-{i + 1}">{pf.seq}. {_escape(pf.display_name)}</a>'
+        for i, pf in enumerate(files)
+    )
+    blocks = "\n".join(
+        _document_block_html(pf, out_path, doc_index=i + 1)
+        for i, pf in enumerate(files)
+    )
+    body = (
+        f'<a id="cf-top"></a>'
+        f'<header class="cf-header">'
+        f'<h1>{_escape(title)}</h1>'
+        f'<p>{first_seq}〜{last_seq} 件目の文書をまとめて表示 '
+        f'(batch {batch_no}/{total_batches}, {len(files)} files)</p>'
+        f'<p class="small">Job: {_escape(job.job_name)} ({_escape(job.source_type)})'
+        f' · {_escape(job.run_started_at)}</p>'
+        f'</header>'
+        f'<nav class="cf-toc"><strong>目次</strong>{toc_links}</nav>'
+        f'<main class="cf-main">{blocks}</main>'
+        f'<footer class="cf-footer">stdharvest combine_full</footer>'
+    )
+    full = (
+        '<!DOCTYPE html>\n'
+        '<html lang="ja">\n<head>\n<meta charset="UTF-8"/>\n'
+        f'<title>{_escape(title)}</title>\n'
+        f'<style>{_COMBINE_FULL_CSS}</style>\n'
+        '</head>\n<body>\n'
+        f'{body}\n'
+        '</body>\n</html>\n'
+    )
+    out_path.write_text(full, encoding="utf-8")
+
+
+def build_combine_full_html(
+    files: List[ProcessedFile],
+    job: JobContext,
+    settings: Settings,  # noqa: ARG001  (kept for API symmetry)
+    chunk_size: int = COMBINE_FULL_CHUNK_SIZE,
+) -> List[CombineFullBatch]:
+    """Generate `html/combine_full/combine_full_NNN.html` (N files per page).
+
+    Each page inlines the body of each individual HTML, with image / link paths
+    rewritten so assets render correctly from the combine_full location.
+    Errors on a single file do not stop the whole job.
+    """
+    if not files:
+        return []
+    logger.info("combine_full generation started")
+    ensure_dir(job.html_combine_full_dir)
+
+    chunk = max(1, int(chunk_size))
+    ordered = sorted(files, key=lambda pf: (pf.seq, pf.row.row_no))
+    batches: List[CombineFullBatch] = []
+    total = (len(ordered) + chunk - 1) // chunk
+    for batch_no, start in enumerate(range(0, len(ordered), chunk), start=1):
+        group = ordered[start : start + chunk]
+        out_path = job.html_combine_full_dir / f"combine_full_{batch_no:03d}.html"
+        try:
+            _combine_full_page(job, group, out_path, batch_no, total)
+            logger.info("%s created: %d documents", out_path.name, len(group))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("failed to write %s: %s", out_path.name, exc)
+            continue
+        batches.append(
+            CombineFullBatch(
+                batch_no=batch_no,
+                first_seq=group[0].seq,
+                last_seq=group[-1].seq,
+                combine_full_path=out_path,
+                file_count=len(group),
+            )
+        )
+    logger.info("combine_full generation completed (%d page(s))", len(batches))
+    return batches

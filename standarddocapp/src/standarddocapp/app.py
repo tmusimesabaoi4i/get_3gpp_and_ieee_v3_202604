@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 import tkinter as tk
+from importlib.resources import as_file, files
 from tkinter import messagebox, ttk
 
 from . import APP_NAME, __version__
@@ -14,6 +15,51 @@ from .paths import app_log_dir
 from .search_tab import SearchTab
 from .sysinfo import collect_env_info
 from .widgets import StatusBar
+
+
+# Suppress: never crash app startup just because the icon failed to load.
+_log = logging.getLogger(__name__)
+
+
+def _apply_window_icon(root: tk.Tk) -> None:
+    """Set the *window* icon (title bar + taskbar) from the bundled .ico.
+
+    The PyInstaller spec ``icon=`` only sets the file icon shown in Explorer
+    for ``StandardDocApp.exe`` itself. The tkinter window icon is independent
+    and has to be applied here, otherwise the title bar / taskbar still show
+    the default Tk feather logo.
+
+    Looks up ``standarddocapp/assets/app.ico`` via ``importlib.resources`` so
+    the same code path works for ``python -m standarddocapp`` (icon read from
+    the source tree) and for the PyInstaller-bundled exe (icon read from
+    ``sys._MEIPASS/standarddocapp/assets/app.ico``).
+    """
+    try:
+        ref = files("standarddocapp.assets") / "app.ico"
+        if not ref.is_file():
+            return
+        with as_file(ref) as ico_path:
+            root.iconbitmap(default=str(ico_path))
+    except Exception as exc:  # noqa: BLE001
+        _log.debug("could not apply window icon: %s", exc)
+
+
+def _apply_app_user_model_id() -> None:
+    """Tell Windows this exe is its own application for taskbar grouping.
+
+    Without this, Windows treats us as a generic "Python" host and may share
+    the taskbar slot / icon with other Python apps.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            f"StandardDocApp.{__version__}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log.debug("could not set AppUserModelID: %s", exc)
 
 
 def _configure_root_logging() -> None:
@@ -90,6 +136,7 @@ def build_root() -> tk.Tk:
     root.minsize(960, 620)
 
     _apply_theme(root)
+    _apply_window_icon(root)
 
     env = collect_env_info(APP_NAME, __version__, app_log_dir())
     _build_menu(root, env)
@@ -138,6 +185,7 @@ def build_root() -> tk.Tk:
 
 def launch(argv: list[str] | None = None) -> int:
     _configure_root_logging()
+    _apply_app_user_model_id()
     root = build_root()
     try:
         root.mainloop()

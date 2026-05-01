@@ -237,14 +237,22 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed ^
 --icon src\standarddocapp\assets\app.ico
 ```
 
-### アイコン (`.exe` のアイコン) を変更する
+### アイコンを変更する
 
-`StandardDocApp.spec` は **`src\standarddocapp\assets\app.ico` が存在すれば
-自動的にアイコンとして使う** ようになっています（無ければ PyInstaller デフォルト）。
-spec を編集する必要はありません。
+Windows のアプリでは **3 種類のアイコン** がそれぞれ別経路で表示されます。
+本プロジェクトはこの 3 つすべてを `src\standarddocapp\assets\app.ico` 1 ファイルから
+自動的に設定する作りになっています。
 
-1. 任意の方法で `app.ico` を用意します（推奨: 256x256 までを含むマルチサイズ）。
-   PNG しか手元に無い場合は ImageMagick で生成可能:
+| アイコンの種類 | どこに出る | 設定経路 |
+|---|---|---|
+| ① ファイルアイコン | エクスプローラ上の `StandardDocApp.exe` | `StandardDocApp.spec` の `EXE(icon=...)` で焼き込み |
+| ② ウィンドウアイコン | アプリ起動後のタイトルバー | tkinter の `root.iconbitmap(default=...)` (`app.py`) |
+| ③ タスクバーアイコン | Windows タスクバー | ② と AppUserModelID 設定 (`SetCurrentProcessExplicitAppUserModelID`) |
+
+差し替え手順:
+
+1. 任意の方法で `app.ico` を用意します（推奨: **16/24/32/48/64/128/256** を含む
+   マルチサイズ、全 32bpp）。PNG しか手元に無い場合は ImageMagick で生成可能:
 
    ```bat
    magick convert app.png -define icon:auto-resize=256,128,64,48,32,16 app.ico
@@ -256,6 +264,47 @@ spec を編集する必要はありません。
    ```bat
    build_exe.bat
    ```
+
+`build_exe.bat` 内の `--clean` で PyInstaller の作業ディレクトリも消えるため、
+ビルドキャッシュ起因でアイコンが古いまま、ということは発生しません。
+
+#### 注意: Windows Explorer のアイコンキャッシュ
+
+ビルド済み exe には正しいアイコンが焼き込まれていても、**エクスプローラ上の
+表示が古いアイコンのまま** に見えることがあります。これは Windows の
+`IconCache.db` の仕様です。`Get-Item` のタイムスタンプは新しいのに見た目が
+変わらない場合は次のコマンドでキャッシュをリフレッシュしてください。
+
+```bat
+ie4uinit.exe -show
+```
+
+それでも古い場合は次でフルクリア（要再ログイン）:
+
+```bat
+taskkill /IM explorer.exe /F
+del /A /Q "%LOCALAPPDATA%\IconCache.db"
+del /A /F /Q "%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.db"
+start explorer.exe
+```
+
+#### 確認方法 (アイコンが本当に焼き込まれているか)
+
+PowerShell で次を実行すると、exe に埋め込まれているアイコンを取り出して
+プレビュー画像を `%TEMP%` に保存できます。
+
+```powershell
+Add-Type -AssemblyName System.Drawing
+$icon = [System.Drawing.Icon]::ExtractAssociatedIcon(
+    (Resolve-Path .\standarddocapp\dist\StandardDocApp.exe).Path)
+$icon.ToBitmap().Save("$env:TEMP\extracted.png",
+    [System.Drawing.Imaging.ImageFormat]::Png)
+explorer "$env:TEMP\extracted.png"
+```
+
+ここで自分のアイコンが取り出せていれば「ファイルアイコン (①)」は設定済みです。
+タイトルバー / タスクバー (②③) は tkinter 経由で `app.py` から読み込むため、
+アプリを起動して確認してください。
 
 詳細は [`src/standarddocapp/assets/README.md`](./src/standarddocapp/assets/README.md)
 を参照してください。
@@ -349,6 +398,8 @@ python -m pip uninstall standarddocapp stdsearch stdharvest
 | `ModuleNotFoundError: win32com.gen_py` (exe 実行時) | spec を使うか、`--collect-all win32com` を追加 |
 | exe ダブルクリック後にウィンドウが出ない | spec の `console=False` を一時的に `True` にして再ビルドし、コマンドプロンプトから起動して例外を確認 |
 | HTML 整合性チェッカで「assets が無い」 | `--add-data "src\standarddocapp\assets;standarddocapp\assets"` の指定漏れを確認 (spec を使えば自動) |
+| ビルドしたのに **エクスプローラ上のアイコンが古いまま** | Windows のアイコンキャッシュ。`ie4uinit.exe -show` でリフレッシュ。それでも駄目なら `%LOCALAPPDATA%\IconCache.db` と `%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.db` を削除し、`explorer.exe` を再起動 |
+| exe を起動すると **ウィンドウのタイトルバー / タスクバーだけ** が Tk ロゴ | `app.py` の `_apply_window_icon()` が呼ばれているか / `assets\app.ico` が spec の `datas` に含まれているか確認。`build_exe.bat` で `--clean` 付き再ビルド |
 
 ---
 

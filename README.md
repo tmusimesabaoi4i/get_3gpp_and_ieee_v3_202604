@@ -19,8 +19,10 @@
 - `standarddocapp`（GUI 統合アプリ）:
   - セットアップ・使い方: [`standarddocapp/README.md`](./standarddocapp/README.md)
   - エントリポイント: `python -m standarddocapp`（開発実行）
-  - exe ビルド: [`standarddocapp/build_tools/build.ps1`](./standarddocapp/build_tools/build.ps1)
+  - exe ビルド (推奨): リポジトリ直下の [`build_exe.bat`](./build_exe.bat)
     → `standarddocapp\dist\StandardDocApp.exe`
+  - 中身: [`standarddocapp/build_tools/build.ps1`](./standarddocapp/build_tools/build.ps1)
+    / [`build_app.py`](./standarddocapp/build_tools/build_app.py)
 
 クイックスタート (`StandardDocApp` GUI):
 
@@ -35,14 +37,42 @@ python -m pip install -e .\standarddocapp
 python -m standarddocapp
 ```
 
-エンドユーザー向けに 1 ファイルの `StandardDocApp.exe` を作る場合は次を実行
-します（PyInstaller が必要なものを自動取得します）。
+エンドユーザー向けに 1 ファイルの `StandardDocApp.exe` を作る場合は、
+**リポジトリ直下の `build_exe.bat` をダブルクリック** するのが一番簡単です
+（PowerShell の実行ポリシーに引っかからず、PyInstaller が必要なものを自動取得します）。
+
+```bat
+REM コマンドプロンプトでもエクスプローラーのダブルクリックでも可
+build_exe.bat
+
+REM venv を再利用してビルドだけ走らせる
+build_exe.bat -SkipDeps
+
+REM dist\ / build\ を消してから走らせる
+build_exe.bat -Clean
+```
+
+PowerShell から走らせたい場合は、初回のみ実行ポリシーを許可してから:
 
 ```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 .\standarddocapp\build_tools\build.ps1
 ```
 
-成果物: `standarddocapp\dist\StandardDocApp.exe`
+または、その場限りで `Bypass` する:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+    .\standarddocapp\build_tools\build.ps1
+```
+
+成果物: `standarddocapp\dist\StandardDocApp.exe` （`--windowed` ビルドのため
+ダブルクリックしても黒いコンソールは出ません）。
+
+`.exe` のアイコンを差し替えたい場合は
+`standarddocapp\src\standarddocapp\assets\app.ico` に `.ico` を置いてから
+再ビルドするだけです。詳細・spec を使わない手動コマンド・トラブルシュートは
+[`standarddocapp/README.md`](./standarddocapp/README.md) のビルド章を参照してください。
 
 > GUI を使う場合でも、既存の CLI（`stdharvest run --excel ...` /
 > `stdsearch run --excel ...`）はそのまま利用可能です。

@@ -1,0 +1,5 @@
+[console_scripts]
+standarddocapp = standarddocapp.__main__:main
+
+[gui_scripts]
+StandardDocApp = standarddocapp.__main__:main

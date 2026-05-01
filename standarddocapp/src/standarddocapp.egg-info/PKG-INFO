@@ -1,0 +1,114 @@
+Metadata-Version: 2.4
+Name: standarddocapp
+Version: 1.0.0
+Summary: Integrated Tk GUI launching stdharvest (collect) and stdsearch (search)
+Author: StandardDocApp maintainers
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: openpyxl>=3.1.2
+Provides-Extra: build
+Requires-Dist: pyinstaller>=6.0; extra == "build"
+
+# StandardDocApp
+
+`stdharvest`（収集）と `stdsearch`（検索）を 1 つの Windows GUI に統合した Tk
+アプリケーションです。エンドユーザーは `StandardDocApp.exe` だけを起動し、
+画面上のタブで「収集」と「検索」を切り替えて利用できます。
+
+- 入口は **`StandardDocApp.exe`** に統一（`stdharvest.exe` / `stdsearch.exe`
+  は作成しません）。
+- 既存の CLI は引き続き利用できます:
+  - `stdharvest run --excel ...`
+  - `stdsearch run --excel ...`
+- 既存の Excel 仕様、出力フォルダ構成、ログ仕様は変更していません。
+- PDF 化は **Microsoft Office を優先**し、利用不可なら **LibreOffice
+  (soffice)** にフォールバックします（`stdharvest/pdf_converter.py` 既存実装
+  を再利用）。Playwright / Chromium には依存しません。
+
+## タブ構成
+
+### 収集タブ
+- `sample_download.xlsx` 形式の Excel を選択
+- `Sheet1!B1:B3` から SourceType / OutputRootFolder / JobName を表示
+- 予測される `JobFolder`（`<OutputRoot>\<YYYYMMDD>_<JobName>`）を表示
+- 「Run harvest」で `stdharvest.cli.run` を別スレッドで実行
+- ログをリアルタイム表示（ファイルにも保存）
+- 完了後、JobFolder と `html/index.html` を OS の関連付けで開ける
+
+### 検索タブ
+- `sample_search.xlsx` 形式の Excel を選択
+- ProjectName / JobFolder / OutputFolder と検索ルール一覧を表示
+- `manifest.json` の存在確認結果を表示
+- 「Run search」で `stdsearch.cli.run` を別スレッドで実行
+- 完了後、`search_results.html` / `.csv` / 出力フォルダを開ける
+
+### 設定・ログ・About タブ
+- アプリバージョン / Python / OS 情報
+- Microsoft Office / LibreOffice 検出状況（PDF 変換に使う優先順位を表示）
+- アプリログ保存先（`%LOCALAPPDATA%\StandardDocApp\logs`）
+- リポジトリ内のサンプル Excel の場所をエクスプローラーで開く
+- README を OS 既定のビューワで開く
+
+## 開発実行（exe を作らずに動かす）
+
+```powershell
+cd <repo-root>
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .\stdharvest
+python -m pip install -e .\stdsearch
+python -m pip install -e .\standarddocapp
+python -m standarddocapp
+```
+
+## exe のビルド
+
+PyInstaller で単一の Windows GUI 実行ファイルを生成します。
+
+```powershell
+cd <repo-root>
+.\standarddocapp\build_tools\build.ps1
+```
+
+または Python から直接:
+
+```powershell
+cd <repo-root>
+python .\standarddocapp\build_tools\build_app.py
+```
+
+成果物は `standarddocapp\dist\StandardDocApp.exe` に出力されます。共有先の
+PC にコピーして起動してください（事前のセットアップ不要、Microsoft Office
+または LibreOffice のいずれかが入っていれば PDF 化が動作します）。
+
+`build.ps1` は内部で次を行います:
+1. `.venv-build/` に隔離された venv を作成
+2. `stdharvest`, `stdsearch`, `standarddocapp` を editable install
+3. `pyinstaller` を最新化
+4. `StandardDocApp.spec` を実行して `dist/StandardDocApp.exe` を出力
+
+## ファイル構成
+
+```
+standarddocapp/
+├── pyproject.toml
+├── README.md
+├── StandardDocApp.spec        # PyInstaller spec
+├── build_tools/
+│   ├── build.ps1              # PowerShell ラッパ
+│   └── build_app.py           # Python ビルドスクリプト
+└── src/
+    └── standarddocapp/
+        ├── __init__.py
+        ├── __main__.py        # python -m standarddocapp で GUI 起動
+        ├── app.py             # Tk root, Notebook, ステータスバー
+        ├── harvest_tab.py     # 収集タブ
+        ├── search_tab.py      # 検索タブ
+        ├── about_tab.py       # 設定・ログ・About タブ
+        ├── log_panel.py       # ScrolledText ベースのログ表示
+        ├── osutil.py          # フォルダ/ファイルを開くヘルパ
+        ├── paths.py           # アプリログディレクトリ
+        ├── runner.py          # バックグラウンド実行 + logging キュー
+        └── sysinfo.py         # Office/LibreOffice/Python/OS 検出
+```

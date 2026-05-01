@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "standarddocapp"
+version = "1.0.0"
+description = "Integrated Tk GUI launching stdharvest (collect) and stdsearch (search)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "StandardDocApp maintainers" }]
+license = { text = "MIT" }
+# stdharvest / stdsearch are sibling source trees in this repo; install them via
+# `pip install -e ./stdharvest -e ./stdsearch` before installing this package.
+# We don't list them here so this package can be installed standalone in CI.
+dependencies = [
+    "openpyxl>=3.1.2",
+]
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=6.0",
+]
+
+[project.scripts]
+# CLI shim that opens the GUI; the .exe artifact is built by PyInstaller.
+standarddocapp = "standarddocapp.__main__:main"
+
+[project.gui-scripts]
+StandardDocApp = "standarddocapp.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

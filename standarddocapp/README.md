@@ -89,31 +89,159 @@ python -m pip install -e .\standarddocapp
 python -m standarddocapp
 ```
 
-## exe のビルド
+## exe 形式でビルドする方法 (PyInstaller)
 
-PyInstaller で単一の Windows GUI 実行ファイルを生成します。
+PyInstaller で **コンソールが出ない単一の Windows GUI 実行ファイル** を作ります。
+ビルド前に、まず開発実行（`python -m standarddocapp`）で GUI が起動できることを
+確認してください。
+
+### 推奨方法 ① bat スクリプト（PowerShell 実行ポリシー回避済み）
+
+リポジトリ直下に `build_exe.bat` を置いてあります。コマンドプロンプトでも
+エクスプローラーからのダブルクリックでも動きます。
+
+```bat
+REM リポジトリ直下から
+build_exe.bat
+
+REM venv を再利用してビルドだけ走らせたい場合
+build_exe.bat -SkipDeps
+
+REM dist\ / build\ をクリーンしてから走らせたい場合
+build_exe.bat -Clean
+```
+
+中身は `standarddocapp\build_tools\build.bat` を呼ぶだけで、
+そちらは `powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1`
+を実行します。よって PowerShell の実行ポリシー
+（`...スクリプトの実行が無効になっているため...` / `UnauthorizedAccess`）
+の影響を受けません。
+
+### 推奨方法 ② PowerShell から直接
+
+事前に **一度だけ** 実行ポリシーを許可してから走らせる方法です。
 
 ```powershell
-cd <repo-root>
+# 一度だけ（CurrentUser スコープ。管理者権限不要）
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+
+# 以降は普通に
 .\standarddocapp\build_tools\build.ps1
 ```
 
-または Python から直接:
+その場限りで通したい場合は次でも可:
 
 ```powershell
-cd <repo-root>
-python .\standarddocapp\build_tools\build_app.py
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+    .\standarddocapp\build_tools\build.ps1
 ```
 
-成果物は `standarddocapp\dist\StandardDocApp.exe` に出力されます。共有先の
-PC にコピーして起動してください（事前のセットアップ不要、Microsoft Office
-または LibreOffice のいずれかが入っていれば PDF 化が動作します）。
+> **なぜエラーが出るのか:** Windows の既定では、署名されていない `.ps1` の
+> 直接実行は `Restricted` でブロックされます。`build.bat` 経由か、
+> 上記いずれかの方法で `Bypass` / `RemoteSigned` 相当の実行コンテキストを
+> 与えてください。
 
-`build.ps1` は内部で次を行います:
-1. `.venv-build/` に隔離された venv を作成
-2. `stdharvest`, `stdsearch`, `standarddocapp` を editable install
-3. `pyinstaller` を最新化
+### 推奨方法 ③ Python から直接
+
+```powershell
+python .\standarddocapp\build_tools\build_app.py
+# venv を再利用するなら:
+python .\standarddocapp\build_tools\build_app.py --skip-deps
+# 出力をクリーンにしてから走らせたい:
+python .\standarddocapp\build_tools\build_app.py --clean
+```
+
+`build.ps1` / `build.bat` が内部で行うのと同じ手順です。
+
+### `build.ps1` / `build_app.py` が内部で行うこと
+
+1. `standarddocapp/.venv-build/` に隔離された venv を作成（既にあれば再利用）
+2. その venv に `stdharvest` / `stdsearch` / `standarddocapp` を editable install
+3. `pyinstaller>=6.0` を最新化
 4. `StandardDocApp.spec` を実行して `dist/StandardDocApp.exe` を出力
+
+### spec を使わず手動コマンドでビルドする場合
+
+`StandardDocApp.spec` を使わず、`python -m PyInstaller` 直叩きでもビルドできます。
+ポイントは次の 2 つです。
+
+- **エントリは `__main__.py` ではなく `build_tools\standarddocapp_launcher.py`**
+  （`__main__.py` を直接渡すと
+  `ImportError: attempted relative import with no known parent package`
+  になります）。
+- `stdharvest` / `stdsearch` / `standarddocapp` のすべてを `--collect-submodules`
+  しておくと動的 import を取りこぼしません。
+
+```powershell
+cd standarddocapp
+python -m pip install pyinstaller
+python -m PyInstaller --noconfirm --clean --onefile --windowed ^
+  --name StandardDocApp ^
+  --paths src ^
+  --paths ..\stdharvest\src ^
+  --paths ..\stdsearch\src ^
+  --collect-submodules standarddocapp ^
+  --collect-submodules stdharvest ^
+  --collect-submodules stdsearch ^
+  --hidden-import openpyxl ^
+  --hidden-import requests ^
+  --hidden-import mammoth ^
+  --hidden-import bs4 ^
+  --hidden-import lxml ^
+  --hidden-import win32com.client ^
+  --add-data "src\standarddocapp\assets;standarddocapp\assets" ^
+  build_tools\standarddocapp_launcher.py
+```
+
+アイコンを付ける場合は次を追加してください:
+
+```text
+--icon src\standarddocapp\assets\app.ico
+```
+
+### アイコン (`.exe` のアイコン) を変更する
+
+`StandardDocApp.spec` は **`src\standarddocapp\assets\app.ico` が存在すれば
+自動的にアイコンとして使う** ようになっています（無ければ PyInstaller
+デフォルト）。 設定手順:
+
+1. 任意の方法で `app.ico` を用意します。  
+   PNG しか手元に無い場合は ImageMagick で生成可能:
+
+   ```powershell
+   magick convert app.png -define icon:auto-resize=256,128,64,48,32,16 app.ico
+   ```
+
+2. それを `standarddocapp\src\standarddocapp\assets\app.ico` に保存。
+3. 再ビルド:
+
+   ```bat
+   build_exe.bat -Clean
+   ```
+
+詳細は [`src/standarddocapp/assets/README.md`](./src/standarddocapp/assets/README.md)
+を参照してください。
+
+### 出力先
+
+```
+standarddocapp\dist\StandardDocApp.exe
+```
+
+`--windowed` (spec 内では `console=False`) でビルドしているので、
+**ダブルクリックしても黒いコンソール画面は出ません**。共有先の PC に
+このファイルだけコピーして起動してください（事前セットアップ不要、
+Microsoft Office または LibreOffice のいずれかが入っていれば PDF 化が動作します）。
+
+### よくあるビルドエラー
+
+| 症状 | 原因 | 対処 |
+| --- | --- | --- |
+| `このシステムではスクリプトの実行が無効になっているため...` / `UnauthorizedAccess` | PowerShell の実行ポリシーで `.ps1` がブロック | `build_exe.bat` を使う、もしくは `powershell -ExecutionPolicy Bypass -File ...` で起動 |
+| `ImportError: attempted relative import with no known parent package` | `__main__.py` を直接 PyInstaller のエントリに渡している | エントリを `build_tools\standarddocapp_launcher.py` に変更（同梱の spec はこの形になっています） |
+| `ModuleNotFoundError: No module named 'stdharvest'` | venv に `stdharvest` / `stdsearch` を editable install していない | `build_app.py` を `--skip-deps` 無しで再実行、または手動で `pip install -e ..\stdharvest -e ..\stdsearch` |
+| `lxml._elementpath` 等が見つからない | PyInstaller の hidden import 取りこぼし | spec を使うか、手動コマンドの場合は `--hidden-import lxml._elementpath` を追加 |
+| 起動直後に一瞬で落ちる | `console=False` で例外を見逃している | デバッグ時は spec 内 `console=True` にしてビルドし、コマンドプロンプトから起動して例外を確認 |
 
 ## ファイル構成
 
@@ -121,10 +249,12 @@ PC にコピーして起動してください（事前のセットアップ不�
 standarddocapp/
 ├── pyproject.toml
 ├── README.md
-├── StandardDocApp.spec        # PyInstaller spec
+├── StandardDocApp.spec        # PyInstaller spec (icon 自動検出)
 ├── build_tools/
+│   ├── build.bat              # PowerShell 実行ポリシー回避用 .bat ラッパ
 │   ├── build.ps1              # PowerShell ラッパ
-│   └── build_app.py           # Python ビルドスクリプト
+│   ├── build_app.py           # Python ビルドスクリプト
+│   └── standarddocapp_launcher.py  # PyInstaller エントリ (絶対 import)
 └── src/
     └── standarddocapp/
         ├── __init__.py
@@ -141,5 +271,9 @@ standarddocapp/
         ├── osutil.py          # フォルダ/ファイルを開くヘルパ
         ├── paths.py           # アプリログディレクトリ
         ├── runner.py          # バックグラウンド実行 + logging キュー
-        └── sysinfo.py         # Office/LibreOffice/Python/OS 検出
+        ├── sysinfo.py         # Office/LibreOffice/Python/OS 検出
+        └── assets/
+            ├── __init__.py
+            ├── README.md      # アイコン差し替え手順
+            └── app.ico        # 任意 (置けば自動適用)
 ```

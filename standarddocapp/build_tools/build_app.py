@@ -18,6 +18,18 @@ or directly::
 
     cd standarddocapp
     python build_tools\\build_app.py
+
+Notes
+-----
+* The PyInstaller entry script is
+  ``standarddocapp/build_tools/standarddocapp_launcher.py`` (chosen via the
+  ``StandardDocApp.spec`` file). Using the package's ``__main__.py`` directly
+  fails at runtime with ``ImportError: attempted relative import with no
+  known parent package`` because PyInstaller treats the entry script as a
+  top-level module. The launcher uses absolute imports and forwards to
+  ``standarddocapp.app.launch``.
+* The spec file picks up ``src/standarddocapp/assets/app.ico`` automatically
+  if you drop one in. No code changes needed to customize the .exe icon.
 """
 from __future__ import annotations
 
@@ -56,6 +68,11 @@ def main(argv: list[str] | None = None) -> int:
         "--clean", action="store_true",
         help="Remove dist/ and build/ before running.",
     )
+    parser.add_argument(
+        "extra", nargs=argparse.REMAINDER,
+        help="Extra args passed straight through to PyInstaller "
+             "(use after --, e.g. `-- --log-level=DEBUG`).",
+    )
     args = parser.parse_args(argv)
 
     if not SPEC.exists():
@@ -75,9 +92,9 @@ def main(argv: list[str] | None = None) -> int:
         pip_install_editable(APP_DIR)
         run([sys.executable, "-m", "pip", "install", "-U", "pyinstaller>=6.0"])
 
-    env = os.environ.copy()
+    extra = [a for a in (args.extra or []) if a != "--"]
     run(
-        [sys.executable, "-m", "PyInstaller", "--noconfirm", str(SPEC)],
+        [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", *extra, str(SPEC)],
         cwd=APP_DIR,
     )
 

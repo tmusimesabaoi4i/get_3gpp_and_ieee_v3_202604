@@ -5,6 +5,17 @@ param(
 
 # Build StandardDocApp.exe via PyInstaller using a fresh venv.
 # Run this from any folder; the script normalizes paths.
+#
+# If you see "このシステムではスクリプトの実行が無効になっているため..." /
+# "running scripts is disabled on this system", launch via build.bat
+# (which passes -ExecutionPolicy Bypass) or run:
+#
+#     powershell -NoProfile -ExecutionPolicy Bypass -File `
+#         standarddocapp\build_tools\build.ps1
+#
+# To allow scripts permanently for the current user (one-time):
+#
+#     Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 $ErrorActionPreference = "Stop"
 
@@ -22,6 +33,7 @@ Write-Host "Python   = $Python"
 if (-not (Test-Path $VenvDir)) {
     Write-Host "Creating venv at $VenvDir"
     & $Python -m venv $VenvDir
+    if ($LASTEXITCODE -ne 0) { throw "Failed to create venv ($LASTEXITCODE)." }
 }
 
 $VenvPy = Join-Path $VenvDir "Scripts\python.exe"

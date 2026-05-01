@@ -2,3 +2,4 @@ openpyxl>=3.1.2
 
 [build]
 pyinstaller>=6.0
+pillow>=10.0

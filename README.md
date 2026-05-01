@@ -14,6 +14,11 @@
 | `stdsearch` | 検索 (CLI / ライブラリ) | [`stdsearch/README.md`](./stdsearch/README.md) | [`stdsearch/samples/sample_search.xlsx`](./stdsearch/samples/sample_search.xlsx) |
 | `standarddocapp` | GUI 統合アプリ | [`standarddocapp/README.md`](./standarddocapp/README.md) | （上記 2 つを GUI から呼び出し） |
 
+ビルド支援:
+
+- `build_exe.bat` (リポジトリ直下のラッパ) → 内部で `standarddocapp\build_exe.bat` を呼ぶ
+- `tools\check_icon.py` → `standarddocapp\src\standarddocapp\assets\app.ico` のサイズ妥当性検査 (Pillow)
+
 ---
 
 ## クイックスタート (`StandardDocApp` GUI)
@@ -58,17 +63,29 @@ build_exe.bat
 成果物: `standarddocapp\dist\StandardDocApp.exe` （`--windowed` ビルドのため
 ダブルクリックしても黒いコンソールは出ません）。
 
-`build_exe.bat` は内部で次を行います。
+`build_exe.bat` は内部で次の 6 ステップを行います。
 
-1. `pip install --upgrade pip`
-2. `pip install -e .\stdharvest -e .\stdsearch -e .\standarddocapp pyinstaller`
-3. 旧 `build/` `dist/` の削除
-4. `python -m PyInstaller --noconfirm --clean StandardDocApp.spec`
+1. `[0/5] Checking required files` (`spec`, `__main__.py`, `assets\app.ico` の存在確認)
+2. `[1/5] Installing required packages` (`stdharvest` / `stdsearch` / `standarddocapp` の editable install + `pyinstaller` + `pillow`)
+3. `[2/5] Validating app.ico` (`tools\check_icon.py` でサイズ 16/24/32/48/64/128/256 を検査)
+4. `[3/5] Removing old build / dist`
+5. `[4/5] Running PyInstaller` (`python -m PyInstaller --noconfirm --clean StandardDocApp.spec`)
+6. `[5/5] Checking output exe`
+
+### アイコン
 
 `.exe` のアイコンを差し替えたい場合は
 `standarddocapp\src\standarddocapp\assets\app.ico` に `.ico` を置いてから
-再ビルドするだけです。spec / 手動コマンド・トラブルシュートを含む詳細は
-[`standarddocapp/README.md`](./standarddocapp/README.md) のビルド章を参照してください。
+再ビルドするだけです（① エクスプローラ / ② タイトルバー / ③ タスクバー
+すべて自動適用）。妥当性は次で検査できます。
+
+```bat
+python -m pip install pillow
+python tools\check_icon.py
+```
+
+spec / 手動コマンド・アイコンキャッシュ問題・トラブルシュートを含む詳細は
+[`standarddocapp/README.md`](./standarddocapp/README.md) を参照してください。
 
 ---
 

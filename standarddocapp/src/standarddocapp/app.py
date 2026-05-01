@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 import tkinter as tk
-from importlib.resources import as_file, files
+from pathlib import Path
 from tkinter import messagebox, ttk
 
 from . import APP_NAME, __version__
@@ -17,8 +17,28 @@ from .sysinfo import collect_env_info
 from .widgets import StatusBar
 
 
-# Suppress: never crash app startup just because the icon failed to load.
 _log = logging.getLogger(__name__)
+
+
+def _resource_path(*parts: str) -> Path:
+    """Resolve a path that lives next to ``standarddocapp/`` at runtime.
+
+    Works in 3 modes:
+
+    * **PyInstaller onefile / onedir** — files added via the spec's ``datas``
+      land under ``sys._MEIPASS``. We mirror that structure with
+      ``standarddocapp/assets/...`` so the same relative path always works.
+    * **Editable install / source checkout** — falls back to the directory
+      that contains *this* file (``app.py``), i.e. ``src/standarddocapp/``.
+    * **Site-packages install** — same as above; ``Path(__file__).parent``
+      points at the installed package's ``standarddocapp/`` directory.
+    """
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        candidate = Path(mei) / "standarddocapp" / Path(*parts)
+        if candidate.exists():
+            return candidate
+    return Path(__file__).resolve().parent / Path(*parts)
 
 
 def _apply_window_icon(root: tk.Tk) -> None:
@@ -28,20 +48,17 @@ def _apply_window_icon(root: tk.Tk) -> None:
     for ``StandardDocApp.exe`` itself. The tkinter window icon is independent
     and has to be applied here, otherwise the title bar / taskbar still show
     the default Tk feather logo.
-
-    Looks up ``standarddocapp/assets/app.ico`` via ``importlib.resources`` so
-    the same code path works for ``python -m standarddocapp`` (icon read from
-    the source tree) and for the PyInstaller-bundled exe (icon read from
-    ``sys._MEIPASS/standarddocapp/assets/app.ico``).
     """
+    icon_path = _resource_path("assets", "app.ico")
+    if not icon_path.exists():
+        _log.warning("window icon not found: %s", icon_path)
+        return
     try:
-        ref = files("standarddocapp.assets") / "app.ico"
-        if not ref.is_file():
-            return
-        with as_file(ref) as ico_path:
-            root.iconbitmap(default=str(ico_path))
+        # ``default=`` makes the icon also apply to child Toplevels created
+        # later (modal dialogs, message boxes, etc.).
+        root.iconbitmap(default=str(icon_path))
     except Exception as exc:  # noqa: BLE001
-        _log.debug("could not apply window icon: %s", exc)
+        _log.warning("failed to set window icon (%s): %s", icon_path, exc)
 
 
 def _apply_app_user_model_id() -> None:

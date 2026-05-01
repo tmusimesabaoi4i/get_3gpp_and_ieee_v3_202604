@@ -9,65 +9,83 @@ Description-Content-Type: text/markdown
 Requires-Dist: openpyxl>=3.1.2
 Provides-Extra: build
 Requires-Dist: pyinstaller>=6.0; extra == "build"
+Requires-Dist: pillow>=10.0; extra == "build"
 
 # standarddocapp
 
-`stdharvest`（収集）と `stdsearch`（検索）を 1 つの Windows GUI に統合した
-tkinter 製デスクトップアプリ。エンドユーザーは **`StandardDocApp.exe`**
-だけを起動し、画面上のタブで「収集 / 検索」を切り替えて利用します。
+`stdharvest`（収集）と `stdsearch`（検索）を 1 つの GUI から実行するための
+Windows 用 tkinter アプリ。エンドユーザーは **`StandardDocApp.exe`** だけを
+起動し、画面上のタブで「収集 / 検索」を切り替えて利用します。
 
 - 入口は **`StandardDocApp.exe`** に統一（`stdharvest.exe` / `stdsearch.exe`
   は作成しません）
 - 既存の CLI（`stdharvest run --excel ...` / `stdsearch run --excel ...`）は
   そのまま利用可能
-- 既存の Excel 仕様、出力フォルダ構成、ログ仕様は変更なし
 - PDF 化は **Microsoft Office を優先**し、不可なら **LibreOffice (soffice)**
-  にフォールバック（`stdharvest/pdf_converter.py` 既存実装を再利用）。
-  Playwright / Chromium には依存しません
+  にフォールバック。Playwright / Chromium には依存しません
 - PyInstaller で **単一 exe (`StandardDocApp.exe`) として配布可能**（配布先に
   Python 不要）
+
+---
+
+## 概要
+
+このアプリは、標準文書のダウンロード・PDF 化・HTML 化・検索を GUI から
+実行するためのツールです。
+
+関連ツール:
+
+- `stdharvest`: Excel から標準文書を一括取得し、PDF / HTML を生成する
+- `stdsearch`: `stdharvest` が生成した HTML を検索し、CSV / HTML / JSON に出力する
 
 ---
 
 ## ディレクトリ構成
 
 ```text
-standarddocapp/
-├─ README.md
-├─ pyproject.toml
-├─ StandardDocApp.spec        # PyInstaller 設定 (推奨ビルド方法)
-├─ build_exe.bat              # exe ビルド補助スクリプト
-├─ src/
-│  └─ standarddocapp/
-│     ├─ __init__.py
-│     ├─ __main__.py          # 絶対 import で書かれたエントリ (PyInstaller 安全)
-│     ├─ app.py               # Tk root, Notebook, メニューバー, ステータスバー
-│     ├─ harvest_tab.py       # 収集タブ
-│     ├─ search_tab.py        # 検索タブ
-│     ├─ about_tab.py         # 設定・ログ・About タブ (サンプル/検証)
-│     ├─ samples.py           # 3GPP/IEEE/Search のサンプル xlsx ジェネレータ
-│     ├─ sample_dialog.py     # サンプル作成カスタムダイアログ
-│     ├─ html_check.py        # HTML 整合性チェッカ
-│     ├─ widgets.py           # ScrollableFrame / StatusBar 等の共通ウィジェット
-│     ├─ log_panel.py         # ScrolledText ベースのログ表示
-│     ├─ osutil.py            # フォルダ/ファイルを開くヘルパ
-│     ├─ paths.py             # アプリログディレクトリ
-│     ├─ runner.py            # バックグラウンド実行 + logging キュー
-│     ├─ sysinfo.py           # Office/LibreOffice/Python/OS 検出
-│     └─ assets/
-│        ├─ __init__.py
-│        ├─ README.md         # アイコン差し替え手順
-│        └─ app.ico           # 任意 (置けば自動で .exe アイコンに採用)
-├─ build/                     # PyInstaller の作業ディレクトリ
-└─ dist/                      # PyInstaller の出力先 (StandardDocApp.exe)
+repo-root/
+├─ build_exe.bat                    # ルートから呼ぶラッパー
+├─ tools/
+│  └─ check_icon.py                 # app.ico サイズ検証 (Pillow)
+├─ stdharvest/
+├─ stdsearch/
+└─ standarddocapp/
+   ├─ build_exe.bat                 # 実際のビルドスクリプト (0/5〜5/5)
+   ├─ StandardDocApp.spec           # PyInstaller 設定
+   ├─ README.md
+   ├─ pyproject.toml
+   ├─ src/
+   │  └─ standarddocapp/
+   │     ├─ __init__.py
+   │     ├─ __main__.py             # 絶対 import で書かれたエントリ
+   │     ├─ app.py                  # Tk root, Notebook, アイコン適用
+   │     ├─ harvest_tab.py
+   │     ├─ search_tab.py
+   │     ├─ about_tab.py
+   │     ├─ samples.py
+   │     ├─ sample_dialog.py
+   │     ├─ html_check.py
+   │     ├─ widgets.py
+   │     ├─ log_panel.py
+   │     ├─ osutil.py
+   │     ├─ paths.py
+   │     ├─ runner.py
+   │     ├─ sysinfo.py
+   │     └─ assets/
+   │        ├─ __init__.py
+   │        ├─ README.md
+   │        ├─ app.ico              # ① ファイル / ② ウィンドウ / ③ タスクバー兼用
+   │        └─ app.png              # ロゴ等の参考用
+   ├─ build/                        # PyInstaller 作業ディレクトリ (生成物)
+   └─ dist/                         # PyInstaller 出力先 (StandardDocApp.exe)
 ```
 
 ---
 
 ## 1. セットアップ (Windows / cmd or PowerShell)
 
-リポジトリ直下で次を実行します。`standarddocapp` 単体ではなく、兄弟パッケージ
-`stdharvest` / `stdsearch` も editable install しておく必要があります。
+リポジトリ直下で次を実行します。`stdharvest` / `stdsearch` / `standarddocapp`
+の **3 つを editable install** する必要があります。
 
 ```bat
 python -m venv .venv
@@ -76,152 +94,77 @@ python -m pip install --upgrade pip
 python -m pip install -e .\stdharvest -e .\stdsearch -e .\standarddocapp
 ```
 
-PowerShell の場合は `.venv\Scripts\Activate.ps1` を使ってください。
-スクリプト実行ポリシーで弾かれる場合は次のいずれかを実施します。
+PowerShell の場合は `.venv\Scripts\Activate.ps1` を使用。スクリプト実行ポリシー
+で弾かれる場合は次のいずれか。
 
 ```powershell
 # 一度だけ (CurrentUser スコープ; 管理者権限不要)
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
-# その場限りで通したい場合
+# その場限り
 powershell -NoProfile -ExecutionPolicy Bypass
 ```
 
 ---
 
-## 2. GUI の起動 (開発時)
+## 2. 開発環境での起動
 
 ```bat
 python -m standarddocapp
 ```
 
-起動すると単一ウィンドウが開き、タブで「収集 / 検索 / 設定・ログ」を切り替えて
-使えます。
-
-`pip install -e .\standarddocapp` を行った環境では、`standarddocapp` /
-`StandardDocApp` コマンドからも GUI を起動できます (Windows の `gui-scripts`
-登録のためコンソールは開きません)。
+または `pip install -e .\standarddocapp` 後にショートカットコマンドで:
 
 ```bat
 StandardDocApp
 ```
 
----
-
-## 3. タブ構成
-
-### 収集タブ
-
-- `sample_download.xlsx` 形式の Excel を選択
-- `Sheet1!B1:B3` から SourceType / OutputRootFolder / JobName を表示
-- 予測される `JobFolder`（`<OutputRoot>\<YYYYMMDD>_<JobName>`）を表示
-- 「Run harvest」で `stdharvest.cli.run` を別スレッドで実行
-- ログをリアルタイム表示（ファイルにも保存）
-- 完了後、JobFolder と `html/index.html` を OS の関連付けで開ける
-
-### 検索タブ
-
-- `sample_search.xlsx` 形式の Excel を選択
-- ProjectName / JobFolder / OutputFolder と検索ルール一覧を表示
-- `manifest.json` の存在確認結果を表示
-- 「Run search」で `stdsearch.cli.run` を別スレッドで実行
-- 完了後、`search_results.html` / `.csv` / 出力フォルダを開ける
-
-### 設定・ログ・About タブ
-
-- アプリバージョン / Python / OS 情報
-- Microsoft Office / LibreOffice 検出状況（PDF 変換に使う優先順位を表示）
-- アプリログ保存先（`%LOCALAPPDATA%\StandardDocApp\logs`）
-- **サンプル Excel ジェネレータ**:
-  - "Build sample download.xlsx... (3GPP / IEEE)" を押すとモーダルダイアログが
-    開き、SourceType / 保存先フォルダ / ファイル名 / JobName / ProxyURL /
-    OutputRootFolder / 参照元 Excel をその場で指定できます
-  - **OutputRootFolder の初期値**はユーザーの Downloads フォルダ
-    (`%USERPROFILE%\Downloads`) に固定
-  - **参照元 Excel** を指定すると、その A 列をスキャンして:
-    - `cell.hyperlink.target` があればそれを URL、セル文字列を title に
-    - なければセル文字列を URL（http(s)/ftp で始まる場合）として採用
-    - 結果を `sample_download.xlsx` の Sheet1 C 列に **ハイパーリンク付きで** 書き込み
-  - 検索用 `sample_search.xlsx` も「Build sample search.xlsx...」ボタンで作成可能
-- **HTML 整合性チェッカ**:
-  - 任意の job フォルダを選択 → `html/index.html` 等を **読み取り専用** で検査
-  - 構文不正、`<body>` 欠如、`<title>` 空、`<!doctype>` 欠如などを検出
-  - 内部リンク (`<a href>`, `<img src>`) と内部アンカー (`#id`) の整合性チェック
-  - 件数進捗バー + ログ + ファイル保存
-- リポジトリ内のサンプル Excel の場所をエクスプローラーで開く
-- README を OS 既定のビューワで開く
-
-### Open ボタンの保証
-
-収集タブ・検索タブの「Open job folder」「Open html/index.html」「Open
-search_results.{html,csv}」「Open output folder」は、**ボタンを押した瞬間に
-現在指定されている Excel を読み直して**、`OutputRootFolder` / `JobName` /
-`ProjectName` / `OutputFolder` から正しいパスを再解決します。Excel を変更しても、
-古いキャッシュではなく現在の設定が指す場所が必ず開きます。
-
-加えて、**Excel ファイルが外部エディタで保存される（mtime 更新）と自動で
-プレビューが再読み込みされ**、いつでも「Reload」ボタンで強制再読み込みできます。
+起動するとタブ付きの単一ウィンドウが開き、「収集 / 検索 / 設定・ログ」を
+切り替えて使えます。
 
 ---
 
-## 4. PDF 生成について
+## 3. exe のビルド
 
-本アプリでは、PDF 生成に **Playwright / Chromium は使用しません**。
-
-`stdharvest/pdf_converter.py` が以下の優先順位で変換を試みます。
-
-1. **Microsoft Office (Word / PowerPoint / Excel)** が利用可能なら COM 経由で PDF 化
-2. 不可な場合は **LibreOffice (`soffice`)** にフォールバック
-
-そのため以下のような追加コマンドは不要です。
-
-```bat
-REM 不要 (このコマンドは実行しなくて OK)
-python -m playwright install chromium
-```
-
-実行前に Excel / Word / PowerPoint は **保存して閉じてから** 走らせてください。
-
----
-
-## 5. exe 形式でビルドする方法 (PyInstaller)
-
-ビルド前にまず `python -m standarddocapp` で通常起動できることを確認してください。
-
-### 推奨方法 (spec ファイル経由)
-
-兄弟パッケージ (`stdharvest` / `stdsearch`) と `lxml` / `openpyxl` /
-`mammoth` / `bs4` / `win32com` の隠れインポート・データファイルを確実に
-取り込むため、付属の `StandardDocApp.spec` を使ったビルドを推奨します。
-
-```bat
-python -m pip install pyinstaller
-python -m PyInstaller --noconfirm --clean StandardDocApp.spec
-```
-
-または bat スクリプトを実行するだけでも構いません。
+リポジトリルートの `build_exe.bat` を実行します。
 
 ```bat
 build_exe.bat
 ```
 
-`build_exe.bat` は内部で次を行います。
-
-1. `pip install --upgrade pip`
-2. `pip install -e ..\stdharvest -e ..\stdsearch -e . pyinstaller`
-3. 旧 `build/` `dist/` を削除
-4. `python -m PyInstaller --noconfirm --clean StandardDocApp.spec`
-
-リポジトリ直下からは `build_exe.bat` でも同じ処理を呼べます（中身は
-`standarddocapp\build_exe.bat` への薄いラッパ）。
-
-### 手動コマンドでビルドする場合
-
-spec を使わない場合は、`--collect-all` で `lxml` / `openpyxl` / `mammoth` /
-`bs4` / `win32com` を取り込み、兄弟パッケージのソースパスを `--paths` に渡し、
-すべてのサブモジュールを `--collect-submodules` してください。
+または `standarddocapp` フォルダで直接:
 
 ```bat
+cd standarddocapp
+build_exe.bat
+```
+
+`build_exe.bat` は次の 6 ステップを実行します。
+
+| ステップ | 内容 |
+|---|---|
+| `[0/5] Checking required files` | `StandardDocApp.spec` / `__main__.py` / `assets\app.ico` の存在確認。1 つでも欠けると即エラーで停止 |
+| `[1/5] Installing required packages` | `pip install -e ..\stdharvest -e ..\stdsearch -e . pyinstaller pillow` |
+| `[2/5] Validating app.ico` | `tools\check_icon.py` で **16/24/32/48/64/128/256** が揃っているか検査 |
+| `[3/5] Removing old build / dist` | 旧 `build/` `dist/` を削除 |
+| `[4/5] Running PyInstaller` | `python -m PyInstaller --noconfirm --clean StandardDocApp.spec` |
+| `[5/5] Checking output exe` | `dist\StandardDocApp.exe` が生成されたかを確認 |
+
+### ビルド成果物
+
+```text
+standarddocapp/
+└─ dist/
+   └─ StandardDocApp.exe        # --windowed (コンソール非表示)
+```
+
+`dist\StandardDocApp.exe` を **そのまま 1 ファイルだけ** 渡せば配布完了です。
+
+### spec を使わず手動コマンドでビルドする場合
+
+```bat
+cd standarddocapp
+python -m pip install pyinstaller
 python -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --name StandardDocApp ^
   --paths src ^
@@ -240,70 +183,76 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --hidden-import pywintypes ^
   --hidden-import win32com.client ^
   --add-data "src\standarddocapp\assets;standarddocapp\assets" ^
+  --icon src\standarddocapp\assets\app.ico ^
   src\standarddocapp\__main__.py
 ```
 
-アイコンを付ける場合は次を追加してください。
+---
+
+## 4. アイコンについて
+
+### 4.1 アプリのアイコンには 3 種類ある
+
+| # | 場所 | 設定経路 |
+|---|---|---|
+| ① | エクスプローラのファイルアイコン | `StandardDocApp.spec` の `EXE(icon=str(ICON_PATH))` で焼き込み |
+| ② | アプリのタイトルバーアイコン | `app.py` の `_apply_window_icon()` が `_MEIPASS\standarddocapp\assets\app.ico` を読み、`root.iconbitmap(default=...)` |
+| ③ | Windows のタスクバーアイコン | ② と `SetCurrentProcessExplicitAppUserModelID("StandardDocApp.<version>")` |
+
+3 つすべてが **同じ `app.ico` 1 ファイル** から自動的に設定されるように
+なっています。差し替え時に編集する spec / コードはありません。
+
+### 4.2 配置場所
 
 ```text
---icon src\standarddocapp\assets\app.ico
+standarddocapp/src/standarddocapp/assets/app.ico
 ```
 
-### アイコンを変更する
+`app.png` を併置しておくと、後から ImageMagick で `.ico` を再生成する際の
+元データになります（こちらも spec によりバンドルされます）。
 
-Windows のアプリでは **3 種類のアイコン** がそれぞれ別経路で表示されます。
-本プロジェクトはこの 3 つすべてを `src\standarddocapp\assets\app.ico` 1 ファイルから
-自動的に設定する作りになっています。
+### 4.3 必須サイズ
 
-| アイコンの種類 | どこに出る | 設定経路 |
-|---|---|---|
-| ① ファイルアイコン | エクスプローラ上の `StandardDocApp.exe` | `StandardDocApp.spec` の `EXE(icon=...)` で焼き込み |
-| ② ウィンドウアイコン | アプリ起動後のタイトルバー | tkinter の `root.iconbitmap(default=...)` (`app.py`) |
-| ③ タスクバーアイコン | Windows タスクバー | ② と AppUserModelID 設定 (`SetCurrentProcessExplicitAppUserModelID`) |
+`app.ico` は次のサイズを **すべて** 含むマルチサイズ ICO にしてください
+（`tools\check_icon.py` で検査）。可能なら全 32bpp。
 
-差し替え手順:
+- 16x16
+- 24x24
+- 32x32
+- 48x48
+- 64x64
+- 128x128
+- 256x256
 
-1. 任意の方法で `app.ico` を用意します（推奨: **16/24/32/48/64/128/256** を含む
-   マルチサイズ、全 32bpp）。PNG しか手元に無い場合は ImageMagick で生成可能:
-
-   ```bat
-   magick convert app.png -define icon:auto-resize=256,128,64,48,32,16 app.ico
-   ```
-
-2. 出力した `.ico` を `src\standarddocapp\assets\app.ico` に保存。
-3. 再ビルド:
-
-   ```bat
-   build_exe.bat
-   ```
-
-`build_exe.bat` 内の `--clean` で PyInstaller の作業ディレクトリも消えるため、
-ビルドキャッシュ起因でアイコンが古いまま、ということは発生しません。
-
-#### 注意: Windows Explorer のアイコンキャッシュ
-
-ビルド済み exe には正しいアイコンが焼き込まれていても、**エクスプローラ上の
-表示が古いアイコンのまま** に見えることがあります。これは Windows の
-`IconCache.db` の仕様です。`Get-Item` のタイムスタンプは新しいのに見た目が
-変わらない場合は次のコマンドでキャッシュをリフレッシュしてください。
+PNG しか手元に無い場合は ImageMagick で生成可能:
 
 ```bat
-ie4uinit.exe -show
+magick convert app.png -define icon:auto-resize=256,128,64,48,32,16 app.ico
 ```
 
-それでも古い場合は次でフルクリア（要再ログイン）:
+### 4.4 アイコン妥当性チェック
 
 ```bat
-taskkill /IM explorer.exe /F
-del /A /Q "%LOCALAPPDATA%\IconCache.db"
-del /A /F /Q "%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.db"
-start explorer.exe
+python -m pip install pillow
+python tools\check_icon.py
 ```
 
-#### 確認方法 (アイコンが本当に焼き込まれているか)
+成功時の出力例:
 
-PowerShell で次を実行すると、exe に埋め込まれているアイコンを取り出して
-プレビュー画像を `%TEMP%` に保存できます。
+```text
+ICO path:        ...\standarddocapp\src\standarddocapp\assets\app.ico
+format:          ICO
+primary size:    (256, 256)
+available sizes: [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+OK: app.ico contains all recommended sizes (16/24/32/48/64/128/256).
+```
+
+`build_exe.bat` の `[2/5]` で同じ検査を行っているため、サイズ不足の `.ico`
+を置いたままビルドが通ることはありません。
+
+### 4.5 焼き込み確認 (PowerShell)
+
+ビルド後、exe にアイコンが本当に焼き込まれているかを抽出して画像保存:
 
 ```powershell
 Add-Type -AssemblyName System.Drawing
@@ -314,28 +263,62 @@ $icon.ToBitmap().Save("$env:TEMP\extracted.png",
 explorer "$env:TEMP\extracted.png"
 ```
 
-ここで自分のアイコンが取り出せていれば「ファイルアイコン (①)」は設定済みです。
-タイトルバー / タスクバー (②③) は tkinter 経由で `app.py` から読み込むため、
-アプリを起動して確認してください。
-
-詳細は [`src/standarddocapp/assets/README.md`](./src/standarddocapp/assets/README.md)
-を参照してください。
-
-### 出力先
-
-```text
-dist\StandardDocApp.exe
-```
-
-`--windowed` (spec 内では `console=False`) を付けているので、ダブルクリック
-しても黒いコンソール画面は出ません。
+ここで自分のアイコンが取り出せれば「① ファイルアイコン」は焼き込み済みです。
+② ③ は exe を起動してウィンドウとタスクバーで実機確認します。
 
 ---
 
-## 6. 第三者への配布
+## 5. ビルド後の確認チェックリスト
 
-`dist\StandardDocApp.exe` を **そのまま 1 ファイルだけ** 渡せば配布完了です。
-配布先で Python のインストールは不要です。
+- [ ] `dist/StandardDocApp.exe` が作成される
+- [ ] exe をダブルクリックして GUI が起動する
+- [ ] Python 未起動状態でも exe 単体で起動する
+- [ ] コンソールウィンドウが表示されない
+- [ ] exe ファイルのアイコンが `app.ico` になっている (① エクスプローラ)
+- [ ] GUI ウィンドウ左上のアイコンが `app.ico` になっている (② タイトルバー)
+- [ ] タスクバーのアイコンが `app.ico` になっている (③ タスクバー)
+- [ ] `stdharvest` / `stdsearch` の処理呼び出しで ImportError が出ない
+- [ ] `assets/app.ico が見つからない` という警告が出ない
+- [ ] `dist` フォルダを別の場所にコピーしても起動する
+
+---
+
+## 6. Windows のアイコンキャッシュ対策
+
+ビルドが成功していても、Windows Explorer が古いアイコンを表示し続ける
+ことがあります。これは **表示キャッシュの問題** であり、exe へのアイコン
+埋め込み失敗とは別問題です。まずは以下のいずれかで切り分けてください。
+
+- **exe を別フォルダにコピーして表示を確認する**
+- **「§ 4.5 焼き込み確認」で焼き込みは正常か確認する**
+
+その上で表示が古いままなら、アイコンキャッシュをリフレッシュします。
+
+```bat
+ie4uinit.exe -show
+```
+
+それでも変わらない場合は、フルクリア（再ログイン推奨）:
+
+```bat
+taskkill /IM explorer.exe /F
+DEL /A /Q "%localappdata%\IconCache.db"
+DEL /A /F /Q "%localappdata%\Microsoft\Windows\Explorer\iconcache*"
+start explorer.exe
+```
+
+---
+
+## 7. PDF 生成について
+
+本アプリでは、PDF 生成に **Playwright / Chromium は使用しません**。
+`stdharvest/pdf_converter.py` が以下の優先順位で変換を試みます。
+
+1. **Microsoft Office (Word / PowerPoint / Excel)** が利用可能なら COM 経由で PDF 化
+2. 不可な場合は **LibreOffice (`soffice`)** にフォールバック
+
+そのため `python -m playwright install chromium` 等の追加コマンドは不要です。
+実行前に Excel / Word / PowerPoint は **保存して閉じてから** 走らせてください。
 
 ### 配布先 PC の前提条件
 
@@ -344,25 +327,30 @@ dist\StandardDocApp.exe
 | OS | Windows 10 / 11 (64-bit) |
 | Python | 不要 (exe に同梱) |
 | Chromium / ブラウザ | 不要 (PDF は Office / LibreOffice で生成) |
-| PDF 化 | Microsoft Office (Word/PowerPoint/Excel) または LibreOffice (`soffice`) のいずれか |
+| PDF 化 | Microsoft Office または LibreOffice (`soffice`) のいずれか |
+| 日本語フォント | 不要 (各 Office が自前で処理) |
 | .NET / Visual C++ ランタイム | 通常の Windows なら追加不要 |
-
-`__main__.py` は **絶対 import** で書いてあるため、PyInstaller の onefile 化や
-`__main__.py` の直接実行でも `ImportError: attempted relative import with no
-known parent package` は発生しません。
-
-### 動作確認のチェックリスト (配布前)
-
-- [ ] `dist\StandardDocApp.exe` をダブルクリックして GUI が起動する
-- [ ] 黒いコンソールウィンドウが表示されない (`--windowed`)
-- [ ] 「収集」タブで `sample_download.xlsx` を読み、Run harvest が成功する
-- [ ] 「検索」タブで `sample_search.xlsx` を読み、Run search が成功する
-- [ ] 設定・ログタブで Office / LibreOffice の検出結果が正しく表示される
-- [ ] Chromium 等の追加インストールを要求されない
 
 ---
 
-## 7. アンインストール
+## 8. よくある問題 (トラブルシューティング)
+
+| 症状 | 対処 |
+|---|---|
+| `ImportError: attempted relative import with no known parent package` | `src\standarddocapp\__main__.py` が **絶対 import** であることを確認（`from standarddocapp.app import launch`）。spec のエントリも `__main__.py` を直接渡す形で問題ありません |
+| PowerShell で `スクリプトの実行が無効` / `UnauthorizedAccess` | `build_exe.bat`（cmd プロンプト）から起動。または `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` を一度だけ実行 |
+| `pip install -e .` が失敗する | `python -m pip install --upgrade pip` 後に再実行 |
+| `ModuleNotFoundError: stdharvest` / `stdsearch` (exe 実行時) | 兄弟パッケージを editable install していない。`build_exe.bat` を使えば自動で行われます |
+| `ModuleNotFoundError: lxml.xxx` (exe 実行時) | spec を使うか、手動コマンドの場合は `--collect-all lxml` を追加 |
+| `ModuleNotFoundError: win32com.gen_py` (exe 実行時) | spec を使うか、`--collect-all win32com` を追加 |
+| exe のファイルアイコンが古いまま | Windows のアイコンキャッシュ。`ie4uinit.exe -show`、または `dist\StandardDocApp.exe` を別フォルダにコピーして表示確認 |
+| ウィンドウのタイトルバーだけ Tk ロゴ | `assets\app.ico` が無い、または spec の `datas` に含まれていない。`build_exe.bat` で再ビルド |
+| `assets/app.ico が見つからない` ログが出る | `standarddocapp\src\standarddocapp\assets\app.ico` の配置を再確認 |
+| PyInstaller ビルドが途中で失敗する | 旧成果物を削除して再ビルド: `cd standarddocapp & rmdir /s /q build & rmdir /s /q dist & python -m PyInstaller --noconfirm --clean StandardDocApp.spec` |
+
+---
+
+## 9. アンインストール
 
 開発環境を消したい場合:
 
@@ -371,47 +359,8 @@ python -m pip uninstall standarddocapp stdsearch stdharvest
 ```
 
 配布先 (exe のみ) では、`StandardDocApp.exe` を削除するだけで完了です。
-`%LOCALAPPDATA%\StandardDocApp` に残ったログも併せて削除すると完全にクリーンな
-状態に戻ります。
-
----
-
-## 8. 主な機能
-
-### 収集 (stdharvest 連携)
-
-- Excel 仕様 (`sample_download.xlsx`) の URL リストを順次ダウンロード
-- ZIP は自動展開し、Office / LibreOffice 経由で PDF 化
-- HTML インデックス（`html/index.html`）を生成
-
-### 検索 (stdsearch 連携)
-
-- Excel 仕様 (`sample_search.xlsx`) のルールに従い、生成済み HTML から
-  指定語を検索・抽出
-- 結果は HTML / CSV の両方で出力 (`search_results.html` / `.csv`)
-
-### サンプル Excel ジェネレータ / HTML 整合性チェッカ
-
-- 3GPP / IEEE / 検索用の `sample_*.xlsx` を GUI 上から作成
-- 既存 Excel の A 列を参照して URL / title を自動採取
-- HTML 整合性チェッカで生成済みファイルの構文・リンクを検証
-
----
-
-## 9. トラブルシューティング
-
-| 症状 | 対処 |
-|---|---|
-| `ImportError: attempted relative import with no known parent package` | `src\standarddocapp\__main__.py` が **絶対 import** になっているか確認（現行版では修正済み）。spec のエントリも `__main__.py` を直接渡して問題ありません |
-| PowerShell で `.ps1 を読み込むことができません` / `UnauthorizedAccess` | `build_exe.bat` （cmd プロンプト）から起動するか、`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` を一度だけ実行 |
-| `pip install -e .` が失敗する | `python -m pip install --upgrade pip` 後に再実行 |
-| `ModuleNotFoundError: stdharvest` / `stdsearch` (exe 実行時) | `..\stdharvest` / `..\stdsearch` を editable install していない。`build_exe.bat` を使えば自動で行われます |
-| `ModuleNotFoundError: lxml.xxx` (exe 実行時) | spec を使うか、手動コマンドの場合は `--collect-all lxml` を追加 |
-| `ModuleNotFoundError: win32com.gen_py` (exe 実行時) | spec を使うか、`--collect-all win32com` を追加 |
-| exe ダブルクリック後にウィンドウが出ない | spec の `console=False` を一時的に `True` にして再ビルドし、コマンドプロンプトから起動して例外を確認 |
-| HTML 整合性チェッカで「assets が無い」 | `--add-data "src\standarddocapp\assets;standarddocapp\assets"` の指定漏れを確認 (spec を使えば自動) |
-| ビルドしたのに **エクスプローラ上のアイコンが古いまま** | Windows のアイコンキャッシュ。`ie4uinit.exe -show` でリフレッシュ。それでも駄目なら `%LOCALAPPDATA%\IconCache.db` と `%LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache_*.db` を削除し、`explorer.exe` を再起動 |
-| exe を起動すると **ウィンドウのタイトルバー / タスクバーだけ** が Tk ロゴ | `app.py` の `_apply_window_icon()` が呼ばれているか / `assets\app.ico` が spec の `datas` に含まれているか確認。`build_exe.bat` で `--clean` 付き再ビルド |
+`%LOCALAPPDATA%\StandardDocApp` に残ったログも併せて削除すると完全に
+クリーンな状態に戻ります。
 
 ---
 
@@ -426,7 +375,11 @@ python -m pip uninstall standarddocapp stdsearch stdharvest
 > `ImportError: attempted relative import with no known parent package`
 > で失敗します。`python -m standarddocapp` でも絶対 import は問題なく動作します。
 
+> **アイコンは `src\standarddocapp\assets\app.ico` 1 ファイルに集約。**
+> ① ファイル / ② ウィンドウ / ③ タスクバーすべてがここを起点に設定されます。
+> 差し替え時に spec / Python コードを編集する必要はありません。
+
 > **`StandardDocApp.spec` は単一のソース・オブ・トゥルース。**
-> ビルド条件を変える場合は spec を編集してください。bat / 手動コマンドは
+> ビルド条件を変える場合は spec を編集してください。手動コマンドは
 > 「spec が無い場合の代替手段」として用意されているだけで、CI で配布物を
 > 作る際は必ず spec 経由でビルドしてください。

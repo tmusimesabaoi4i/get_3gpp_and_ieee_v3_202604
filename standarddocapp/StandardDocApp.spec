@@ -3,92 +3,107 @@
 
 Build with::
 
-    pyinstaller --noconfirm StandardDocApp.spec
+    python -m PyInstaller --noconfirm --clean StandardDocApp.spec
 
-from the ``standarddocapp/`` folder.
+(run from the ``standarddocapp/`` folder; ``build_exe.bat`` does this for
+you).
 
-The build expects ``stdharvest`` and ``stdsearch`` to be importable. When
-running this spec from a virtual environment in which both packages have been
-installed editable (``pip install -e ../stdharvest -e ../stdsearch``), no extra
-configuration is needed.
+This spec is the *recommended* way to build the distributable exe:
 
-Notes
------
-* The PyInstaller entry script is ``build_tools/standarddocapp_launcher.py``,
-  *not* ``src/standarddocapp/__main__.py``. Using ``__main__.py`` directly fails
-  at runtime with ``ImportError: attempted relative import with no known parent
-  package`` because PyInstaller runs the entry script as a top-level module.
-* If ``src/standarddocapp/assets/app.ico`` exists, it is used as the .exe icon.
-  Drop your own ``app.ico`` (256x256 multi-resolution recommended) there to
-  customize the executable icon without touching this spec file.
+* runs the absolute-import-safe entry script
+  (``src/standarddocapp/__main__.py``) so the bundled exe does **not**
+  hit ``ImportError: attempted relative import with no known parent
+  package`` at startup;
+* bundles the static assets folder (``src/standarddocapp/assets``) so an
+  optional ``app.ico`` (or future logo files) ships with the exe;
+* explicitly collects every submodule of ``stdharvest`` / ``stdsearch``
+  / ``standarddocapp`` so dynamic imports reach the bundle;
+* uses ``collect_all`` for the libraries that ship data files or have
+  many lazy submodules (``lxml``, ``openpyxl``, ``mammoth``, ``bs4``,
+  ``win32com``);
+* if ``src/standarddocapp/assets/app.ico`` is present, it is used as the
+  ``.exe`` icon automatically (drop your own ``app.ico`` there to
+  customize without editing this spec).
 """
-
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 block_cipher = None
-HERE = Path(SPECPATH).resolve()
-REPO_ROOT = HERE.parent
+PROJECT_ROOT = Path(SPECPATH).resolve()
+REPO_ROOT = PROJECT_ROOT.parent
 
-ASSETS_DIR = HERE / "src" / "standarddocapp" / "assets"
-ICON_PATH = ASSETS_DIR / "app.ico"
-EXE_ICON = str(ICON_PATH) if ICON_PATH.exists() else None
+ENTRY = str(PROJECT_ROOT / "src" / "standarddocapp" / "__main__.py")
+ASSETS_SRC = PROJECT_ROOT / "src" / "standarddocapp" / "assets"
+ICON_PATH = ASSETS_SRC / "app.ico"
 
-LAUNCHER = HERE / "build_tools" / "standarddocapp_launcher.py"
-
-# Collect every submodule of the sibling packages so dynamic imports work.
+datas = []
+binaries = []
 hiddenimports = []
+
+
+def _bundle(name: str) -> None:
+    """Pull every data file / binary / submodule of *name* into the build."""
+    d, b, h = collect_all(name)
+    datas.extend(d)
+    binaries.extend(b)
+    hiddenimports.extend(h)
+
+
+for pkg in (
+    "lxml",
+    "openpyxl",
+    "mammoth",
+    "bs4",
+    "win32com",
+):
+    _bundle(pkg)
+
+# Sibling source packages: prefer collect_submodules (no data files, just
+# Python modules). They live in REPO_ROOT/{stdharvest,stdsearch}/src and are
+# made importable via the ``pathex`` argument below.
 for pkg in ("stdharvest", "stdsearch", "standarddocapp"):
     hiddenimports.extend(collect_submodules(pkg))
 
 hiddenimports.extend(
     [
-        # third-party libs that PyInstaller sometimes misses
-        "openpyxl",
         "requests",
-        "mammoth",
-        "bs4",
-        "lxml",
         "lxml.etree",
         "lxml._elementpath",
-        # pywin32 / Office COM
         "pythoncom",
         "pywintypes",
-        "win32com",
         "win32com.client",
         "win32com.gen_py",
+        "tkinter",
+        "tkinter.ttk",
+        "tkinter.scrolledtext",
+        "tkinter.filedialog",
+        "tkinter.messagebox",
     ]
 )
 
-# Tk needs to ship with the binary; PyInstaller handles this automatically,
-# but we add tkinter just to be explicit.
-hiddenimports.append("tkinter")
-hiddenimports.append("tkinter.ttk")
-hiddenimports.append("tkinter.scrolledtext")
-hiddenimports.append("tkinter.filedialog")
-hiddenimports.append("tkinter.messagebox")
+if ASSETS_SRC.exists():
+    datas.append((str(ASSETS_SRC), "standarddocapp/assets"))
 
-datas = []
-if ASSETS_DIR.exists():
-    # Bundle assets/ next to the package so e.g. icon/logo files are reachable
-    # via importlib.resources at runtime (currently optional).
-    datas.append((str(ASSETS_DIR), "standarddocapp/assets"))
 
 a = Analysis(
-    [str(LAUNCHER)],
+    [ENTRY],
     pathex=[
-        str(HERE / "src"),
+        str(PROJECT_ROOT / "src"),
         str(REPO_ROOT / "stdharvest" / "src"),
         str(REPO_ROOT / "stdsearch" / "src"),
     ],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=sorted(set(hiddenimports)),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        "playwright",
+        "selenium",
+        "pytest",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -116,5 +131,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=EXE_ICON,
+    icon=str(ICON_PATH) if ICON_PATH.exists() else None,
 )

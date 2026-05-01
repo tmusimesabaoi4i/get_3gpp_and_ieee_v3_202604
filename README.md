@@ -5,108 +5,106 @@
 - `stdharvest`: ダウンロード・ZIP 解凍・PDF 化・HTML 化
 - `stdsearch`: 生成済み HTML から指定語を検索・抽出
 - `standarddocapp`: 上記 2 つを **1 つの Windows GUI（`StandardDocApp.exe`）**
-  に統合した Tk アプリケーション。エンドユーザーはこの exe だけを起動し、
+  に統合した tkinter 製アプリ。エンドユーザーはこの exe だけを起動し、
   タブで「収集 / 検索」を切り替えて使えます。
 
-- `stdharvest`:
-  - セットアップ・使い方: [`stdharvest/README.md`](./stdharvest/README.md)
-  - 入力サンプル: [`stdharvest/samples/sample_download.xlsx`](./stdharvest/samples/sample_download.xlsx)
-  - ソース: [`stdharvest/src/stdharvest/`](./stdharvest/src/stdharvest/)
-- `stdsearch`:
-  - セットアップ・使い方: [`stdsearch/README.md`](./stdsearch/README.md)
-  - 入力サンプル: [`stdsearch/samples/sample_search.xlsx`](./stdsearch/samples/sample_search.xlsx)
-  - ソース: [`stdsearch/src/stdsearch/`](./stdsearch/src/stdsearch/)
-- `standarddocapp`（GUI 統合アプリ）:
-  - セットアップ・使い方: [`standarddocapp/README.md`](./standarddocapp/README.md)
-  - エントリポイント: `python -m standarddocapp`（開発実行）
-  - exe ビルド (推奨): リポジトリ直下の [`build_exe.bat`](./build_exe.bat)
-    → `standarddocapp\dist\StandardDocApp.exe`
-  - 中身: [`standarddocapp/build_tools/build.ps1`](./standarddocapp/build_tools/build.ps1)
-    / [`build_app.py`](./standarddocapp/build_tools/build_app.py)
+| パッケージ | 役割 | セットアップ・使い方 | サンプル |
+|---|---|---|---|
+| `stdharvest` | 収集 (CLI / ライブラリ) | [`stdharvest/README.md`](./stdharvest/README.md) | [`stdharvest/samples/sample_download.xlsx`](./stdharvest/samples/sample_download.xlsx) |
+| `stdsearch` | 検索 (CLI / ライブラリ) | [`stdsearch/README.md`](./stdsearch/README.md) | [`stdsearch/samples/sample_search.xlsx`](./stdsearch/samples/sample_search.xlsx) |
+| `standarddocapp` | GUI 統合アプリ | [`standarddocapp/README.md`](./standarddocapp/README.md) | （上記 2 つを GUI から呼び出し） |
 
-クイックスタート (`StandardDocApp` GUI):
+---
 
-リポジトリ直下で次を実行します。
+## クイックスタート (`StandardDocApp` GUI)
 
-```powershell
+リポジトリ直下で次を実行します。`stdharvest` / `stdsearch` / `standarddocapp`
+の **3 つを editable install** する必要があります。
+
+```bat
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e .\stdharvest
-python -m pip install -e .\stdsearch
-python -m pip install -e .\standarddocapp
+.venv\Scripts\activate
+python -m pip install --upgrade pip
+python -m pip install -e .\stdharvest -e .\stdsearch -e .\standarddocapp
 python -m standarddocapp
 ```
 
-エンドユーザー向けに 1 ファイルの `StandardDocApp.exe` を作る場合は、
-**リポジトリ直下の `build_exe.bat` をダブルクリック** するのが一番簡単です
-（PowerShell の実行ポリシーに引っかからず、PyInstaller が必要なものを自動取得します）。
+PowerShell の場合は `.venv\Scripts\Activate.ps1` を使ってください。スクリプト
+実行ポリシーで弾かれる場合は次のいずれかで通します。
+
+```powershell
+# 一度だけ (CurrentUser スコープ; 管理者権限不要)
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+
+# その場限り
+powershell -NoProfile -ExecutionPolicy Bypass
+```
+
+> GUI を使う場合でも、既存の CLI（`stdharvest run --excel ...` /
+> `stdsearch run --excel ...`）はそのまま利用可能です。
+
+---
+
+## エンドユーザー向け 1 ファイル exe を作る
+
+リポジトリ直下の **`build_exe.bat`** をダブルクリック、または cmd / PowerShell
+から実行するだけです（中身は `standarddocapp\build_exe.bat` を呼ぶだけの薄い
+ラッパで、PowerShell の実行ポリシーには引っかかりません）。
 
 ```bat
-REM コマンドプロンプトでもエクスプローラーのダブルクリックでも可
 build_exe.bat
-
-REM venv を再利用してビルドだけ走らせる
-build_exe.bat -SkipDeps
-
-REM dist\ / build\ を消してから走らせる
-build_exe.bat -Clean
-```
-
-PowerShell から走らせたい場合は、初回のみ実行ポリシーを許可してから:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-.\standarddocapp\build_tools\build.ps1
-```
-
-または、その場限りで `Bypass` する:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File `
-    .\standarddocapp\build_tools\build.ps1
 ```
 
 成果物: `standarddocapp\dist\StandardDocApp.exe` （`--windowed` ビルドのため
 ダブルクリックしても黒いコンソールは出ません）。
 
+`build_exe.bat` は内部で次を行います。
+
+1. `pip install --upgrade pip`
+2. `pip install -e .\stdharvest -e .\stdsearch -e .\standarddocapp pyinstaller`
+3. 旧 `build/` `dist/` の削除
+4. `python -m PyInstaller --noconfirm --clean StandardDocApp.spec`
+
 `.exe` のアイコンを差し替えたい場合は
 `standarddocapp\src\standarddocapp\assets\app.ico` に `.ico` を置いてから
-再ビルドするだけです。詳細・spec を使わない手動コマンド・トラブルシュートは
+再ビルドするだけです。spec / 手動コマンド・トラブルシュートを含む詳細は
 [`standarddocapp/README.md`](./standarddocapp/README.md) のビルド章を参照してください。
 
-> GUI を使う場合でも、既存の CLI（`stdharvest run --excel ...` /
-> `stdsearch run --excel ...`）はそのまま利用可能です。
+---
 
-クイックスタート (`stdharvest` CLI):
+## クイックスタート (`stdharvest` CLI)
 
-リポジトリ直下（この `README.md` があるフォルダ）を例にします。
+リポジトリ直下を例にします。
 
 1. **仮想環境の作成**（未作成の場合）
 
-```powershell
+```bat
 python -m venv .venv
 ```
 
-2. **仮想環境の有効化（入室）**
+2. **仮想環境の有効化**
 
-```powershell
-# PowerShell
-.\.venv\Scripts\Activate.ps1
+```bat
+REM cmd
+.venv\Scripts\activate.bat
+
+REM PowerShell
+.venv\Scripts\Activate.ps1
 ```
 
-コマンドプロンプトの場合は `.\.venv\Scripts\activate.bat`、Linux / macOS の場合は `source .venv/bin/activate` です。
+Linux / macOS の場合は `source .venv/bin/activate` です。
 
 3. **仮想環境内で** `stdharvest` をインストールして実行
 
-```powershell
+```bat
 cd stdharvest
 python -m pip install -e .
 stdharvest run --excel samples/sample_download.xlsx
 ```
 
-4. **仮想環境の無効化（退室）**
+4. **仮想環境の無効化**
 
-```powershell
+```bat
 deactivate
 ```
 
@@ -114,35 +112,38 @@ deactivate
 > Office 経由で PDF 化し、利用不可の場合は LibreOffice をフォールバック利用します。
 > 実行前に Excel / Word / PowerPoint は保存して閉じてください。
 
-クイックスタート (`stdsearch` CLI):
+---
 
-リポジトリ直下（この `README.md` があるフォルダ）を例にします。
+## クイックスタート (`stdsearch` CLI)
+
+リポジトリ直下を例にします。
 
 1. **仮想環境の作成**（未作成の場合）
 
-```powershell
+```bat
 python -m venv .venv
 ```
 
-2. **仮想環境の有効化（入室）**
+2. **仮想環境の有効化**
 
-```powershell
-# PowerShell
-.\.venv\Scripts\Activate.ps1
+```bat
+REM cmd
+.venv\Scripts\activate.bat
+
+REM PowerShell
+.venv\Scripts\Activate.ps1
 ```
-
-コマンドプロンプトの場合は `.\.venv\Scripts\activate.bat`、Linux / macOS の場合は `source .venv/bin/activate` です。
 
 3. **仮想環境内で** `stdsearch` をインストールして実行
 
-```powershell
+```bat
 cd stdsearch
 python -m pip install -e .
 stdsearch run --excel samples/sample_search.xlsx
 ```
 
-4. **仮想環境の無効化（退室）**
+4. **仮想環境の無効化**
 
-```powershell
+```bat
 deactivate
 ```

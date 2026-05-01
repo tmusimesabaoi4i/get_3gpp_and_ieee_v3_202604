@@ -4,6 +4,9 @@
 
 - `stdharvest`: ダウンロード・ZIP 解凍・PDF 化・HTML 化
 - `stdsearch`: 生成済み HTML から指定語を検索・抽出
+- `standarddocapp`: 上記 2 つを **1 つの Windows GUI（`StandardDocApp.exe`）**
+  に統合した Tk アプリケーション。エンドユーザーはこの exe だけを起動し、
+  タブで「収集 / 検索」を切り替えて使えます。
 
 - `stdharvest`:
   - セットアップ・使い方: [`stdharvest/README.md`](./stdharvest/README.md)
@@ -13,8 +16,38 @@
   - セットアップ・使い方: [`stdsearch/README.md`](./stdsearch/README.md)
   - 入力サンプル: [`stdsearch/samples/sample_search.xlsx`](./stdsearch/samples/sample_search.xlsx)
   - ソース: [`stdsearch/src/stdsearch/`](./stdsearch/src/stdsearch/)
+- `standarddocapp`（GUI 統合アプリ）:
+  - セットアップ・使い方: [`standarddocapp/README.md`](./standarddocapp/README.md)
+  - エントリポイント: `python -m standarddocapp`（開発実行）
+  - exe ビルド: [`standarddocapp/build_tools/build.ps1`](./standarddocapp/build_tools/build.ps1)
+    → `standarddocapp\dist\StandardDocApp.exe`
 
-クイックスタート (`stdharvest`):
+クイックスタート (`StandardDocApp` GUI):
+
+リポジトリ直下で次を実行します。
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .\stdharvest
+python -m pip install -e .\stdsearch
+python -m pip install -e .\standarddocapp
+python -m standarddocapp
+```
+
+エンドユーザー向けに 1 ファイルの `StandardDocApp.exe` を作る場合は次を実行
+します（PyInstaller が必要なものを自動取得します）。
+
+```powershell
+.\standarddocapp\build_tools\build.ps1
+```
+
+成果物: `standarddocapp\dist\StandardDocApp.exe`
+
+> GUI を使う場合でも、既存の CLI（`stdharvest run --excel ...` /
+> `stdsearch run --excel ...`）はそのまま利用可能です。
+
+クイックスタート (`stdharvest` CLI):
 
 リポジトリ直下（この `README.md` があるフォルダ）を例にします。
 
@@ -51,7 +84,7 @@ deactivate
 > Office 経由で PDF 化し、利用不可の場合は LibreOffice をフォールバック利用します。
 > 実行前に Excel / Word / PowerPoint は保存して閉じてください。
 
-クイックスタート (`stdsearch`):
+クイックスタート (`stdsearch` CLI):
 
 リポジトリ直下（この `README.md` があるフォルダ）を例にします。
 

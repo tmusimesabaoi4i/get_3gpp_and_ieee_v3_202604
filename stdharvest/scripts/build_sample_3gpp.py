@@ -49,14 +49,15 @@ def build() -> None:
         cell.fill = HEADER_FILL
         cell.alignment = Alignment(horizontal="left")
 
-    # 3GPP RAN1 documents from meeting #114b.
-    base_url = "https://www.3gpp.org/ftp/TSG_RAN/WG1_RL1/TSGR1_114b/Docs"
+    # 3GPP RAN1 documents from meeting #120b.
+    base_url = "https://www.3gpp.org/ftp/tsg_ran/WG1_RL1/TSGR1_120b/Docs"
     doc_ids = [
-        "R1-2309136",
-        "R1-2309171",
-        "R1-2309306",
-        "R1-2309685",
-        "R1-2309698",
+        "R1-2502624",
+        "R1-2502715",
+        "R1-2502726",
+        "R1-2502776",
+        "R1-2502814",
+        "R1-2502821",
     ]
     samples = [(doc_id, f"{base_url}/{doc_id}.zip") for doc_id in doc_ids]
 

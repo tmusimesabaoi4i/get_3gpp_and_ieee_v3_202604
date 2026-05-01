@@ -49,11 +49,17 @@ def build() -> None:
         cell.fill = HEADER_FILL
         cell.alignment = Alignment(horizontal="left")
 
-    # IEEE 802.11 documents from mentor.ieee.org
-    samples = [
-        ("11-26-0819-00-00bq Multiple BSSID set in IMMW",
-         "https://mentor.ieee.org/802.11/dcn/26/11-26-0819-00-00bq-multiple-bssid-set-in-immw.pptx"),
+    # IEEE 802.11 documents from mentor.ieee.org (mu-edca series, 11ax)
+    base_url = "https://mentor.ieee.org/802.11/dcn/16"
+    doc_files = [
+        "11-16-1424-02-00ax-issue-on-the-cwmax-value-in-mu-edca.pptx",
+        "11-16-1425-02-00ax-clarification-on-applying-mu-edca-parameter-set.pptx",
+        "11-16-1368-02-00ax-follow-up-on-mu-edca-parameters.docx",
+        "11-16-0998-02-00ax-rules-for-2-edca-parameters.pptx",
+        "11-16-0963-02-00ax-edca-rules-8211-follow-up-2.pptx",
+        "11-16-0962-02-00ax-edca-rules-8211-follow-up-1.pptx",
     ]
+    samples = [(name.rsplit(".", 1)[0], f"{base_url}/{name}") for name in doc_files]
 
     for i, (title, url) in enumerate(samples, start=5):
         cell = ws1.cell(row=i, column=3, value=title)

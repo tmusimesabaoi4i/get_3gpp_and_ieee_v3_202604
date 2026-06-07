@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/stdharvest/__init__.py
+src/stdharvest/__main__.py
 src/stdharvest/cli.py
 src/stdharvest/downloader.py
 src/stdharvest/excel_io.py

@@ -15,7 +15,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 import requests
 
-from . import models
+from . import models, win_http
 from .models import DownloadRow, JobContext, Settings
 from .utils import (
     ensure_dir,
@@ -150,6 +150,22 @@ def _build_proxies(settings: Settings) -> dict | None:
     return {"http": url, "https": url}
 
 
+def _effective_proxy_hostport(settings: Settings) -> str:
+    """Return the bare ``host:port`` proxy that will be used, or "".
+
+    Mirrors :func:`_build_proxies` (explicit ProxyURL, else auto-detected) but
+    strips any scheme/credentials so the value can be handed to WinHTTP.
+    """
+    raw = (settings.proxy_url or "").strip()
+    if not raw:
+        raw = detect_system_proxy()
+    if not raw:
+        return ""
+    if "://" in raw:
+        raw = raw.split("://", 1)[1]
+    return raw.rsplit("@", 1)[-1]  # drop any embedded user:pass@
+
+
 def _pick_extension(source_type: str, url: str, content_type: str | None) -> str:
     """Decide an extension for the saved file when we have to invent one."""
     url_lower = url.lower().split("?")[0]
@@ -181,13 +197,14 @@ def _pick_extension(source_type: str, url: str, content_type: str | None) -> str
 def _resolve_save_path(
     job: JobContext,
     row: DownloadRow,
-    response: requests.Response,
+    content_disposition: str | None = None,
+    content_type: str | None = None,
 ) -> Path:
     folder = job.raw_dir / item_folder_name(row.seq, row.title)
     ensure_dir(folder)
 
     # Prefer: Content-Disposition -> URL path -> synthesized
-    cd_name = filename_from_content_disposition(response.headers.get("Content-Disposition"))
+    cd_name = filename_from_content_disposition(content_disposition)
     if cd_name:
         return folder / cd_name
 
@@ -195,9 +212,133 @@ def _resolve_save_path(
     if url_name and "." in url_name:
         return folder / url_name
 
-    ext = _pick_extension(job.source_type, row.url, response.headers.get("Content-Type"))
+    ext = _pick_extension(job.source_type, row.url, content_type)
     stem = "original"
     return folder / f"{stem}{ext}"
+
+
+_BROWSER_HEADERS = {
+    # Browser-like headers to avoid bot detection (e.g. IEEE Mentor returns 418).
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+}
+
+# HTTP statuses where retrying is pointless (treat as a definitive failure).
+_NO_RETRY_STATUSES = (401, 403, 404, 410)
+
+
+def _proxy_auth_message(settings: Settings, integrated_tried: bool) -> str:
+    """Build an actionable Japanese message for a 407 proxy-auth failure."""
+    if integrated_tried:
+        return (
+            "プロキシ認証に失敗しました (407)。Windows 統合認証 (現在のログオンユーザー) "
+            "では認証できませんでした。必要に応じて Sheet2 の ProxyUser / ProxyPassword に "
+            "プロキシ用のユーザー名・パスワードを設定してください。"
+        )
+    if settings.proxy_user:
+        return (
+            "プロキシ認証に失敗しました (407)。Sheet2 の ProxyUser / ProxyPassword の "
+            "ユーザー名・パスワードを確認してください。"
+        )
+    return (
+        "プロキシ認証が必要です (407)。Sheet2 の ProxyUser / ProxyPassword に "
+        "プロキシ用のユーザー名・パスワードを設定してください。"
+    )
+
+
+def _mark_reused(row: DownloadRow, save_path: Path) -> None:
+    row.raw_path = save_path
+    row.saved_path = str(save_path)
+    row.status = models.STATUS_SKIPPED
+    row.message = "既存ファイルを再利用しました"
+    row.last_run_at = now_iso()
+
+
+def _mark_saved(row: DownloadRow, save_path: Path) -> None:
+    row.raw_path = save_path
+    row.saved_path = str(save_path)
+    row.status = models.STATUS_DONE  # tentative; PDF/HTML stages may override
+    row.message = "downloaded"
+    row.last_run_at = now_iso()
+
+
+def _attempt_requests(
+    row: DownloadRow,
+    job: JobContext,
+    settings: Settings,
+    proxies: dict | None,
+) -> tuple[str, str]:
+    """One download attempt via requests. Returns (outcome, error_message)."""
+    with requests.get(
+        row.url,
+        headers=_BROWSER_HEADERS,
+        proxies=proxies,
+        timeout=settings.timeout_sec,
+        stream=True,
+        allow_redirects=True,
+    ) as resp:
+        if resp.status_code >= 400:
+            err = f"HTTP {resp.status_code} {resp.reason}"
+            if resp.status_code == 407:
+                return "fatal", _proxy_auth_message(settings, integrated_tried=False)
+            if resp.status_code in _NO_RETRY_STATUSES:
+                return "fatal", err
+            return "retry", err
+        save_path = _resolve_save_path(
+            job, row,
+            resp.headers.get("Content-Disposition"),
+            resp.headers.get("Content-Type"),
+        )
+        if save_path.exists() and not settings.overwrite_existing:
+            _mark_reused(row, save_path)
+            return "done", ""
+        tmp_path = save_path.with_suffix(save_path.suffix + ".part")
+        with open(tmp_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 256):
+                if chunk:
+                    f.write(chunk)
+        os.replace(tmp_path, save_path)
+        _mark_saved(row, save_path)
+        return "done", ""
+
+
+def _attempt_winhttp(
+    row: DownloadRow,
+    job: JobContext,
+    settings: Settings,
+    proxy_hostport: str,
+) -> tuple[str, str]:
+    """One download attempt via WinHTTP integrated auth. Returns (outcome, err)."""
+    resp = win_http.get(
+        row.url,
+        proxy_hostport=proxy_hostport,
+        timeout_sec=settings.timeout_sec,
+        headers=_BROWSER_HEADERS,
+    )
+    if resp.status_code >= 400:
+        err = f"HTTP {resp.status_code} {resp.reason}"
+        if resp.status_code == 407:
+            return "fatal", _proxy_auth_message(settings, integrated_tried=True)
+        if resp.status_code in _NO_RETRY_STATUSES:
+            return "fatal", err
+        return "retry", err
+    save_path = _resolve_save_path(
+        job, row, resp.header("Content-Disposition"), resp.header("Content-Type"),
+    )
+    if save_path.exists() and not settings.overwrite_existing:
+        _mark_reused(row, save_path)
+        return "done", ""
+    tmp_path = save_path.with_suffix(save_path.suffix + ".part")
+    with open(tmp_path, "wb") as f:
+        f.write(resp.body)
+    os.replace(tmp_path, save_path)
+    _mark_saved(row, save_path)
+    return "done", ""
 
 
 def _download_one(
@@ -206,6 +347,8 @@ def _download_one(
     settings: Settings,
     lock: threading.Lock,
     proxies: dict | None,
+    use_winhttp: bool,
+    proxy_hostport: str,
 ) -> None:
     if not row.url:
         row.status = models.STATUS_ERROR
@@ -213,71 +356,29 @@ def _download_one(
         row.last_run_at = now_iso()
         return
 
-    # Use browser-like headers to avoid bot detection (e.g. IEEE Mentor returns 418).
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-    }
     last_err: str = ""
 
     for attempt in range(1, settings.retry_count + 1):
         try:
-            with requests.get(
-                row.url,
-                headers=headers,
-                proxies=proxies,
-                timeout=settings.timeout_sec,
-                stream=True,
-                allow_redirects=True,
-            ) as resp:
-                if resp.status_code >= 400:
-                    last_err = f"HTTP {resp.status_code} {resp.reason}"
-                    # 4xx/5xx: let retry loop decide whether to try again.
-                    if resp.status_code in (401, 403, 404, 410):
-                        break
-                    raise requests.HTTPError(last_err)
-                save_path = _resolve_save_path(job, row, resp)
-                if save_path.exists() and not settings.overwrite_existing:
-                    row.raw_path = save_path
-                    row.saved_path = str(save_path)
-                    row.status = models.STATUS_SKIPPED
-                    row.message = "既存ファイルを再利用しました"
-                    row.last_run_at = now_iso()
-                    return
+            if use_winhttp:
+                outcome, err = _attempt_winhttp(row, job, settings, proxy_hostport)
+            else:
+                outcome, err = _attempt_requests(row, job, settings, proxies)
 
-                tmp_path = save_path.with_suffix(save_path.suffix + ".part")
-                with open(tmp_path, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=1024 * 256):
-                        if chunk:
-                            f.write(chunk)
-                os.replace(tmp_path, save_path)
-
-                row.raw_path = save_path
-                row.saved_path = str(save_path)
-                row.status = models.STATUS_DONE  # tentative; PDF/HTML stages may override
-                row.message = "downloaded"
-                row.last_run_at = now_iso()
+            if outcome == "done":
                 return
+            last_err = err
+            if outcome == "fatal":
+                # Retrying cannot help (auth/not-found): stop now.
+                logger.warning("Row %d: stop retrying: %s", row.row_no, last_err)
+                break
+            logger.warning(
+                "Download attempt %d failed for row %d: %s", attempt, row.row_no, last_err
+            )
         except requests.exceptions.ProxyError as exc:
-            # A 407 means the proxy itself rejected us: retrying with the same
-            # (missing/invalid) credentials cannot help, so stop immediately and
-            # surface an actionable message instead of spamming the log.
+            # requests path: a 407 cannot be solved by retrying with the same creds.
             if "407" in str(exc):
-                if settings.proxy_user:
-                    last_err = (
-                        "プロキシ認証に失敗しました (407)。Sheet2 の ProxyUser / "
-                        "ProxyPassword のユーザー名・パスワードを確認してください。"
-                    )
-                else:
-                    last_err = (
-                        "プロキシ認証が必要です (407)。Sheet2 の ProxyUser / ProxyPassword に "
-                        "プロキシ用のユーザー名・パスワードを設定してください。"
-                    )
+                last_err = _proxy_auth_message(settings, integrated_tried=False)
                 logger.error("Row %d: %s", row.row_no, last_err)
                 break
             last_err = f"ProxyError: {exc}"
@@ -302,10 +403,33 @@ def download_all(rows: List[DownloadRow], job: JobContext, settings: Settings) -
         return
     ensure_dir(job.raw_dir)
     proxies = _build_proxies(settings)  # detect/normalize once for the whole run
+    proxy_hostport = _effective_proxy_hostport(settings)
+
+    # When a proxy is in play and the user did NOT supply explicit credentials,
+    # use WinHTTP so the proxy is authenticated with the current Windows login
+    # (NTLM/Negotiate SSO) - just like a browser. This is what lets corporate
+    # proxies work without typing a username/password.
+    use_winhttp = (
+        os.name == "nt"
+        and bool(proxy_hostport)
+        and not (settings.proxy_user or settings.proxy_password)
+        and win_http.is_available()
+    )
+    if use_winhttp:
+        logger.info(
+            "プロキシ %s へ Windows 統合認証 (現在のログオンユーザー) で接続します",
+            proxy_hostport,
+        )
+
     throttle = threading.Lock()
     workers = max(1, settings.download_workers)
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(_download_one, r, job, settings, throttle, proxies) for r in rows]
+        futures = [
+            pool.submit(
+                _download_one, r, job, settings, throttle, proxies, use_winhttp, proxy_hostport,
+            )
+            for r in rows
+        ]
         for _ in as_completed(futures):
             pass
 

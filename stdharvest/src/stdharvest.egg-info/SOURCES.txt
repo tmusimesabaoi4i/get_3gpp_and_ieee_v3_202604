@@ -13,6 +13,7 @@ src/stdharvest/pdf_converter.py
 src/stdharvest/size_check.py
 src/stdharvest/unzipper.py
 src/stdharvest/utils.py
+src/stdharvest/win_http.py
 src/stdharvest.egg-info/PKG-INFO
 src/stdharvest.egg-info/SOURCES.txt
 src/stdharvest.egg-info/dependency_links.txt

@@ -20,7 +20,7 @@ This spec is the *recommended* way to build the distributable exe:
   / ``standarddocapp`` so dynamic imports reach the bundle;
 * uses ``collect_all`` for the libraries that ship data files or have
   many lazy submodules (``lxml``, ``openpyxl``, ``mammoth``, ``bs4``,
-  ``win32com``);
+  ``win32com``, ``PIL``);
 * if ``src/standarddocapp/assets/app.ico`` is present, it is used as the
   ``.exe`` icon automatically (drop your own ``app.ico`` there to
   customize without editing this spec).
@@ -56,6 +56,7 @@ for pkg in (
     "mammoth",
     "bs4",
     "win32com",
+    "PIL",  # image plugins incl. WMF/EMF rasteriser used for HTML images
 ):
     _bundle(pkg)
 

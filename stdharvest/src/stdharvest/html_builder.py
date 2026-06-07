@@ -1,7 +1,9 @@
 """HTML generation: per-file page, 5-file combined page, and index page."""
 from __future__ import annotations
 
+import base64
 import html
+import io
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -83,6 +85,72 @@ def _status_badge(status: str) -> str:
     return f'<span class="{cls}">{_escape(status or "PENDING")}</span>'
 
 
+# Image content-types browsers can render directly (embedded as-is).
+_WEB_SAFE_IMAGE_TYPES = {
+    "image/png", "image/jpeg", "image/jpg", "image/gif",
+    "image/bmp", "image/webp", "image/svg+xml",
+}
+
+# DPI used when rasterising vector metafiles (EMF/WMF) to PNG. 150 keeps text
+# crisp without bloating the embedded data URI too much.
+_METAFILE_RENDER_DPI = 150
+
+
+def _raster_to_png(data: bytes) -> Optional[bytes]:
+    """Convert non-web image bytes (EMF/WMF/TIFF/...) to PNG via Pillow.
+
+    Returns None when Pillow is unavailable or the image cannot be rendered
+    (e.g. EMF/WMF rendering is only supported on Windows). The caller then
+    falls back to embedding the original bytes unchanged.
+    """
+    try:
+        from PIL import Image  # lazy import (Windows: renders EMF/WMF via GDI)
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            # WMF/EMF honour a dpi hint to control the rasterisation size.
+            try:
+                im.load(dpi=_METAFILE_RENDER_DPI)
+            except TypeError:
+                im.load()
+            if im.mode not in ("RGB", "RGBA", "L"):
+                im = im.convert("RGBA")
+            out = io.BytesIO()
+            im.save(out, "PNG")
+            return out.getvalue()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("画像のPNG変換に失敗しました: %s", exc)
+        return None
+
+
+def _make_image_converter():
+    """Return a mammoth image handler that web-safe-ifies embedded images.
+
+    Word documents (especially 3GPP) frequently embed charts/equations as EMF
+    or WMF metafiles. Browsers cannot display ``data:image/x-emf`` URIs, so we
+    rasterise those to PNG; already-web-safe formats are embedded unchanged.
+    """
+    import mammoth  # caller guarantees mammoth is importable
+
+    @mammoth.images.img_element
+    def _convert(image):
+        content_type = (getattr(image, "content_type", "") or "").lower()
+        with image.open() as stream:
+            data = stream.read()
+        if content_type not in _WEB_SAFE_IMAGE_TYPES:
+            png = _raster_to_png(data)
+            if png is not None:
+                data = png
+                content_type = "image/png"
+            elif not content_type:
+                content_type = "application/octet-stream"
+        encoded = base64.b64encode(data).decode("ascii")
+        return {"src": f"data:{content_type};base64,{encoded}"}
+
+    return _convert
+
+
 def _docx_to_html_body(path: Path) -> Optional[str]:
     try:
         import mammoth  # lazy import
@@ -90,7 +158,7 @@ def _docx_to_html_body(path: Path) -> Optional[str]:
         return None
     try:
         with open(path, "rb") as f:
-            result = mammoth.convert_to_html(f)
+            result = mammoth.convert_to_html(f, convert_image=_make_image_converter())
         body = result.value
         return body or None
     except Exception as exc:  # noqa: BLE001

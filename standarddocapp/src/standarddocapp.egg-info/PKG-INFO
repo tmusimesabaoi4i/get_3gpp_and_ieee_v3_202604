@@ -335,15 +335,38 @@ start explorer.exe
 
 ## 7.5 プロキシ環境での利用 (認証付きプロキシ / 407 対策)
 
-社内・庁内などの **認証付きプロキシ** 経由でダウンロードする場合は、Sheet2
-(Settings) に以下を設定します。
+### 基本: 認証付きプロキシでも「設定なし」で通ります（Windows 統合認証）
+
+社内・庁内などの **認証付きプロキシ** でも、多くの場合 **ProxyUser /
+ProxyPassword を設定する必要はありません**。本アプリは Windows 上では
+**ブラウザと同じ仕組み（WinHTTP の `WinHttpRequest`）でダウンロード**し、
+プロキシに対して **現在ログオン中の Windows アカウントで自動認証
+（NTLM / Kerberos のシングルサインオン）** します。
+
+- `ProxyURL` を **空欄** にすれば、`netsh winhttp show proxy` → IE/WinINET の
+  順でシステムのプロキシを自動検出し、統合認証で接続します。
+- `ProxyURL` を明示指定した場合（例 `m7adc99proxy.ring.meti.go.jp:8080`）も、
+  ユーザー名・パスワード未設定なら統合認証で接続します。
+- 実行時ログに `プロキシ ... へ Windows 統合認証 (現在のログオンユーザー) で
+  接続します` と表示されれば、この経路が使われています。
+
+> 以前 `netsh` や MSXML2 / WinHTTP 系のツールで「特に設定せずに」ダウンロード
+> できていたのと同じ挙動です。アカウント名やパスワードを Excel に書く必要は
+> ありません。
+
+### 統合認証で通らない場合のみ: ユーザー名 / パスワードを設定
+
+統合認証が拒否される（ログに 407 が残る）特殊なプロキシでは、Sheet2
+(Settings) に **任意で** 認証情報を設定できます。
 
 | Sheet2 ラベル | 例 | 説明 |
 |---|---|---|
-| `ProxyURL` | `m7adc99proxy.ring.meti.go.jp:8080` | プロキシのホスト:ポート。`http://` は省略可（自動補完されます） |
+| `ProxyURL` | `m7adc99proxy.ring.meti.go.jp:8080` | プロキシのホスト:ポート。`http://` は省略可（自動補完）。空欄なら自動検出 |
 | `ProxyUser` | `taro.tokkyo` または `DOMAIN\taro.tokkyo` | プロキシ認証のユーザー名。**任意** |
 | `ProxyPassword` | `********` | プロキシ認証のパスワード。**任意** |
 
+- **`ProxyUser` / `ProxyPassword` を設定すると統合認証は使わず**、その
+  ユーザー名・パスワードで（Basic 認証として）接続します。
 - `ProxyUser` / `ProxyPassword` は Sheet2 の **16・17 行目**（`CombineHtmlBatchSize`
   の下）に追加されました。古い `sample_download.xlsx` には欄が無いので、その場合は
   「収集」タブの **サンプル Excel 作成** で作り直すか、Sheet2 の A16=`ProxyUser` /
@@ -351,9 +374,7 @@ start explorer.exe
 - ユーザー名・パスワードに `@` `:` `\` などの記号が含まれていても、内部で
   自動的に URL エンコードして `http://user:pass@host:port` 形式に組み立てます。
   自分で `ProxyURL` に `http://user:pass@...` を直接書いても構いません。
-- ログに `407 authenticationrequired` が出た場合は、プロキシがユーザー認証を
-  要求しています。`ProxyUser` / `ProxyPassword` を設定して再実行してください。
-  認証失敗 (407) のときは無駄なリトライをせず、即座にエラーとして
+- 認証失敗 (407) のときは無駄なリトライをせず、即座にエラーとして
   Excel の Message 欄に対処方法を表示します。
 - **`ProxyURL` を空欄にすると、Windows のシステムプロキシ設定を自動検出します。**
   まず `netsh winhttp show proxy` を確認し、未設定なら IE/WinINET

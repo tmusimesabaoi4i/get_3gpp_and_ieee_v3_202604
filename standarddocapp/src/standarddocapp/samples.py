@@ -108,12 +108,15 @@ _SETTINGS_LABELS: Tuple[str, ...] = (
     "PdfWorkers",
     "HtmlWorkers",
     "CombineHtmlBatchSize",
+    # Optional proxy authentication (read by stdharvest from rows 16/17).
+    "ProxyUser",
+    "ProxyPassword",
 )
 
 _DEFAULT_SETTINGS_VALUES = {
     "ProxyURL": "",
     "TimeoutSec": 60,
-    "RetryCount": 3,
+    "RetryCount": 5,
     "SleepSec": 0.5,
     "OverwriteExisting": "no",
     "MinFileSizeKB": 10,
@@ -126,6 +129,8 @@ _DEFAULT_SETTINGS_VALUES = {
     "PdfWorkers": 2,
     "HtmlWorkers": 6,
     "CombineHtmlBatchSize": 5,
+    "ProxyUser": "",
+    "ProxyPassword": "",
 }
 
 _SETTINGS_VALIDATIONS: Tuple[Tuple[str, str], ...] = (
@@ -186,8 +191,14 @@ def _populate_harvest_sheet1(
     dv_source.add("B1")
 
 
-def _populate_settings_sheet(ws, *, proxy_url: str = "") -> None:
-    overrides = {"ProxyURL": proxy_url}
+def _populate_settings_sheet(
+    ws, *, proxy_url: str = "", proxy_user: str = "", proxy_password: str = "",
+) -> None:
+    overrides = {
+        "ProxyURL": proxy_url,
+        "ProxyUser": proxy_user,
+        "ProxyPassword": proxy_password,
+    }
     for i, label in enumerate(_SETTINGS_LABELS, start=1):
         value = overrides.get(label, _DEFAULT_SETTINGS_VALUES[label])
         c_a = ws.cell(row=i, column=1, value=label)
@@ -244,6 +255,8 @@ def build_harvest_sample(
     output_root: Optional[str] = None,
     job_name: Optional[str] = None,
     proxy_url: str = "",
+    proxy_user: str = "",
+    proxy_password: str = "",
     urls: Optional[Sequence[Tuple[str, str]] | Sequence[str]] = None,
 ) -> Path:
     """Build a sample download.xlsx with full control over every Sheet1 field.
@@ -271,7 +284,12 @@ def build_harvest_sample(
         job_name=job_name,
         rows=rows,
     )
-    _populate_settings_sheet(wb.create_sheet("Sheet2"), proxy_url=proxy_url or "")
+    _populate_settings_sheet(
+        wb.create_sheet("Sheet2"),
+        proxy_url=proxy_url or "",
+        proxy_user=proxy_user or "",
+        proxy_password=proxy_password or "",
+    )
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -285,12 +303,15 @@ def build_3gpp_sample(
     output_root: Optional[str] = None,
     job_name: Optional[str] = None,
     proxy_url: str = "",
+    proxy_user: str = "",
+    proxy_password: str = "",
     urls: Optional[Sequence[Tuple[str, str]] | Sequence[str]] = None,
 ) -> Path:
     return build_harvest_sample(
         out_path, source_type="3gpp",
         output_root=output_root, job_name=job_name,
-        proxy_url=proxy_url, urls=urls,
+        proxy_url=proxy_url, proxy_user=proxy_user, proxy_password=proxy_password,
+        urls=urls,
     )
 
 
@@ -300,12 +321,15 @@ def build_ieee_sample(
     output_root: Optional[str] = None,
     job_name: Optional[str] = None,
     proxy_url: str = "",
+    proxy_user: str = "",
+    proxy_password: str = "",
     urls: Optional[Sequence[Tuple[str, str]] | Sequence[str]] = None,
 ) -> Path:
     return build_harvest_sample(
         out_path, source_type="ieee",
         output_root=output_root, job_name=job_name,
-        proxy_url=proxy_url, urls=urls,
+        proxy_url=proxy_url, proxy_user=proxy_user, proxy_password=proxy_password,
+        urls=urls,
     )
 
 

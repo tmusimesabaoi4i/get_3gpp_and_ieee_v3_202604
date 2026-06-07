@@ -320,11 +320,49 @@ start explorer.exe
 
 ---
 
+## 7.5 プロキシ環境での利用 (認証付きプロキシ / 407 対策)
+
+社内・庁内などの **認証付きプロキシ** 経由でダウンロードする場合は、Sheet2
+(Settings) に以下を設定します。
+
+| Sheet2 ラベル | 例 | 説明 |
+|---|---|---|
+| `ProxyURL` | `m7adc99proxy.ring.meti.go.jp:8080` | プロキシのホスト:ポート。`http://` は省略可（自動補完されます） |
+| `ProxyUser` | `taro.tokkyo` または `DOMAIN\taro.tokkyo` | プロキシ認証のユーザー名。**任意** |
+| `ProxyPassword` | `********` | プロキシ認証のパスワード。**任意** |
+
+- `ProxyUser` / `ProxyPassword` は Sheet2 の **16・17 行目**（`CombineHtmlBatchSize`
+  の下）に追加されました。古い `sample_download.xlsx` には欄が無いので、その場合は
+  「収集」タブの **サンプル Excel 作成** で作り直すか、Sheet2 の A16=`ProxyUser` /
+  A17=`ProxyPassword` を手で追記して B 列に値を入れてください。
+- ユーザー名・パスワードに `@` `:` `\` などの記号が含まれていても、内部で
+  自動的に URL エンコードして `http://user:pass@host:port` 形式に組み立てます。
+  自分で `ProxyURL` に `http://user:pass@...` を直接書いても構いません。
+- ログに `407 authenticationrequired` が出た場合は、プロキシがユーザー認証を
+  要求しています。`ProxyUser` / `ProxyPassword` を設定して再実行してください。
+  認証失敗 (407) のときは無駄なリトライをせず、即座にエラーとして
+  Excel の Message 欄に対処方法を表示します。
+- **`ProxyURL` を空欄にすると、Windows のシステムプロキシ設定を自動検出します。**
+  まず `netsh winhttp show proxy` を確認し、未設定なら IE/WinINET
+  （インターネット オプション）のプロキシ設定を参照します。検出した場合は
+  ログに「システムのプロキシ設定を自動検出して使用します: host:port」と表示します。
+  自動検出されたプロキシが認証を要求する場合でも、`ProxyUser` / `ProxyPassword`
+  を設定すればそのまま使えます。
+- 環境変数 (`HTTPS_PROXY` 等) を使いたい場合も `ProxyURL` を空欄にしてください
+  （自動検出で何も見つからなければ requests が環境変数を参照します）。
+
+> パスワードは Excel に平文で保存されます。共有フォルダに置く場合は取り扱いに
+> 注意してください。
+
+---
+
 ## 8. よくある問題 (トラブルシューティング)
 
 | 症状 | 対処 |
 |---|---|
 | `ImportError: attempted relative import with no known parent package` | `src\standarddocapp\__main__.py` が **絶対 import** であることを確認（`from standarddocapp.app import launch`）。spec のエントリも `__main__.py` を直接渡す形で問題ありません |
+| ダウンロードが全件失敗し `ProxyError ... 407 authenticationrequired` | 認証付きプロキシです。Sheet2 の `ProxyUser` / `ProxyPassword` にプロキシ用のユーザー名・パスワードを設定（§ 7.5 参照） |
+| `ProxyError ... Unable to connect to proxy` (407 以外) | `ProxyURL` のホスト名・ポートを確認。プロキシ不要なら `ProxyURL` を空欄に |
 | PowerShell で `スクリプトの実行が無効` / `UnauthorizedAccess` | `build_exe.bat`（cmd プロンプト）から起動。または `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` を一度だけ実行 |
 | `pip install -e .` が失敗する | `python -m pip install --upgrade pip` 後に再実行 |
 | `ModuleNotFoundError: stdharvest` / `stdsearch` (exe 実行時) | 兄弟パッケージを editable install していない。`build_exe.bat` を使えば自動で行われます |

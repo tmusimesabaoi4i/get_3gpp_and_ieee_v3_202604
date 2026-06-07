@@ -85,7 +85,7 @@ def build() -> None:
     settings_rows = [
         ("ProxyURL", ""),
         ("TimeoutSec", 60),
-        ("RetryCount", 3),
+        ("RetryCount", 5),
         ("SleepSec", 0.5),
         ("OverwriteExisting", "no"),
         ("MinFileSizeKB", 10),
@@ -98,6 +98,8 @@ def build() -> None:
         ("PdfWorkers", 2),
         ("HtmlWorkers", 6),
         ("CombineHtmlBatchSize", 5),
+        ("ProxyUser", ""),
+        ("ProxyPassword", ""),
     ]
     for i, (label, value) in enumerate(settings_rows, start=1):
         c_a = ws2.cell(row=i, column=1, value=label)

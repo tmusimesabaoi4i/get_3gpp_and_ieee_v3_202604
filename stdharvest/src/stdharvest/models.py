@@ -41,8 +41,10 @@ class Settings:
     """Values stored in Sheet2 (Settings)."""
 
     proxy_url: str = ""
+    proxy_user: str = ""
+    proxy_password: str = ""
     timeout_sec: int = 60
-    retry_count: int = 3
+    retry_count: int = 5  # 3GPP/IEEE servers are flaky; allow more attempts by default
     sleep_sec: float = 0.5
     overwrite_existing: bool = False
     min_file_size_kb: int = 10

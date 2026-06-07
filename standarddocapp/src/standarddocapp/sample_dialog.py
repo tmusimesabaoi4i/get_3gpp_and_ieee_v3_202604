@@ -56,6 +56,8 @@ class SampleExcelDialog(tk.Toplevel):
         self._filename_var = tk.StringVar(value="sample_download.xlsx")
         self._jobname_var = tk.StringVar(value=DEFAULT_JOB_NAMES[self._source_var.get()])
         self._proxy_var = tk.StringVar(value="")
+        self._proxyuser_var = tk.StringVar(value="")
+        self._proxypass_var = tk.StringVar(value="")
         self._outroot_var = tk.StringVar(value=str(default_output_root()))
         self._refexcel_var = tk.StringVar(value="")
 
@@ -134,12 +136,14 @@ class SampleExcelDialog(tk.Toplevel):
         self._row(frame, 3, "ファイル名:", self._filename_var)
         self._row(frame, 4, "JobName:", self._jobname_var)
         self._row(frame, 5, "ProxyURL:", self._proxy_var)
-        self._row(frame, 6, "OutputRootFolder:", self._outroot_var, browse="dir")
-        self._row(frame, 7, "参照元 Excel (任意):", self._refexcel_var, browse="file")
+        self._row(frame, 6, "ProxyUser (任意):", self._proxyuser_var)
+        self._row(frame, 7, "ProxyPassword (任意):", self._proxypass_var)
+        self._row(frame, 8, "OutputRootFolder:", self._outroot_var, browse="dir")
+        self._row(frame, 9, "参照元 Excel (任意):", self._refexcel_var, browse="file")
 
         # URL preview
         prev_box = ttk.LabelFrame(frame, text="C 列に書き込まれる URL (preview)", padding=6)
-        prev_box.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(8, 4))
+        prev_box.grid(row=10, column=0, columnspan=3, sticky="ew", pady=(8, 4))
         prev_box.columnconfigure(0, weight=1)
         self._preview_text = tk.Text(
             prev_box, height=8, width=88, wrap=tk.NONE, state=tk.DISABLED,
@@ -156,7 +160,7 @@ class SampleExcelDialog(tk.Toplevel):
 
         # OK / Cancel
         actions = ttk.Frame(frame)
-        actions.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        actions.grid(row=11, column=0, columnspan=3, sticky="ew", pady=(10, 0))
         actions.columnconfigure(0, weight=1)
         ttk.Button(actions, text="Cancel", command=self._on_cancel, width=12).grid(
             row=0, column=1, sticky="e", padx=(0, 6)
@@ -264,6 +268,8 @@ class SampleExcelDialog(tk.Toplevel):
                 output_root=self._outroot_var.get().strip() or None,
                 job_name=self._jobname_var.get().strip() or None,
                 proxy_url=self._proxy_var.get().strip(),
+                proxy_user=self._proxyuser_var.get().strip(),
+                proxy_password=self._proxypass_var.get(),
                 urls=urls,
             )
         except Exception as exc:  # noqa: BLE001

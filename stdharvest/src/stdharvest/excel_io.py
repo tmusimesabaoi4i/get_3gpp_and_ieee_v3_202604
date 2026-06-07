@@ -87,6 +87,9 @@ def _read_settings(wb: Workbook) -> Settings:
     s.pdf_workers = _int(v(13), s.pdf_workers)
     s.html_workers = _int(v(14), s.html_workers)
     s.combine_html_batch_size = _int(v(15), s.combine_html_batch_size)
+    # Optional proxy authentication (appended rows; absent in older workbooks).
+    s.proxy_user = _str(v(16))
+    s.proxy_password = _str(v(17))
     return s
 
 

@@ -6,9 +6,12 @@ import html
 import io
 import logging
 import os
+import re
+import xml.etree.ElementTree as ET
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from . import models
@@ -51,6 +54,13 @@ hr { border: none; border-top: 1px solid #ddd; margin: 2rem 0; }
 article.doc { border: 1px solid #e2e2e2; border-radius: 8px; background: white; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
 article.doc h3 { margin-top: 0; }
 pre.docxbody { background: #fff; border: 1px solid #eee; padding: 0.75rem; white-space: pre-wrap; }
+
+/* Word body images: never overflow the column; keep aspect ratio; an inline
+   width (from the original Word size) may shrink small images appropriately. */
+.docx { overflow-wrap: break-word; word-break: break-word; }
+.docx img { max-width: 100%; height: auto; max-height: 85vh; }
+.docx table { max-width: 100%; }
+.docx table td, .docx table th { word-break: break-word; }
 
 /* PowerPoint slides */
 .slide { background: white; border: 1px solid #e2e2e2; border-radius: 8px;
@@ -151,6 +161,83 @@ def _make_image_converter():
     return _convert
 
 
+# ---- Word intended image sizing (so big/small images match the original) ----
+
+# OOXML namespaces used when reading the intended on-page image sizes.
+_NS_WP = "{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}"
+_NS_VML = "{urn:schemas-microsoft-com:vml}"
+_NS_MC = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
+_EMU_PER_PX = 9525  # 914400 EMU/inch ÷ 96 px/inch
+
+
+def _vml_style_px(style: str, key: str) -> int:
+    """Parse a VML ``style`` length (``width:123pt``) into CSS px (0 if absent)."""
+    match = re.search(rf"{key}\s*:\s*([0-9.]+)pt", style or "")
+    return round(float(match.group(1)) * 4 / 3) if match else 0  # 1pt = 4/3 px @96dpi
+
+
+def _walk_image_dims(el: ET.Element, out: List[Tuple[int, int]]) -> None:
+    """Collect (width_px, height_px) for each drawing, in document order.
+
+    For ``mc:AlternateContent`` only the chosen branch is followed so a single
+    logical image (DrawingML + VML fallback) is not counted twice.
+    """
+    tag = el.tag
+    if tag == _NS_MC + "AlternateContent":
+        target = el.find(_NS_MC + "Choice")
+        if target is None:
+            target = el.find(_NS_MC + "Fallback")
+        if target is not None:
+            for child in target:
+                _walk_image_dims(child, out)
+        return
+    if tag == _NS_WP + "extent":
+        cx = int(el.get("cx", "0") or "0")
+        cy = int(el.get("cy", "0") or "0")
+        out.append((round(cx / _EMU_PER_PX), round(cy / _EMU_PER_PX)))
+        return
+    if tag == _NS_VML + "shape" and el.find(_NS_VML + "imagedata") is not None:
+        style = el.get("style", "")
+        out.append((_vml_style_px(style, "width"), _vml_style_px(style, "height")))
+    for child in el:
+        _walk_image_dims(child, out)
+
+
+def _extract_docx_image_dims(path: Path) -> List[Tuple[int, int]]:
+    """Return the on-page display size (CSS px) of each image, in document order."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            xml = zf.read("word/document.xml")
+        root = ET.fromstring(xml)
+    except Exception:  # noqa: BLE001
+        return []
+    dims: List[Tuple[int, int]] = []
+    _walk_image_dims(root, dims)
+    return dims
+
+
+def _apply_image_dims(body_html: str, dims: List[Tuple[int, int]]) -> str:
+    """Set each <img> width to the size Word displays it at.
+
+    Applied only when the image count matches exactly (all-or-nothing) so we
+    never mis-assign a size. Width is set via inline style; CSS keeps the
+    aspect ratio and caps oversized images to the container width.
+    """
+    try:
+        from bs4 import BeautifulSoup  # lazy import
+    except Exception:  # noqa: BLE001
+        return body_html
+    soup = BeautifulSoup(body_html, "html.parser")
+    imgs = soup.find_all("img")
+    if not imgs or len(imgs) != len(dims):
+        return body_html
+    for img, (w, _h) in zip(imgs, dims):
+        if w and w > 0:
+            existing = img.get("style", "")
+            img["style"] = (existing + f"width:{w}px;").strip()
+    return str(soup)
+
+
 def _docx_to_html_body(path: Path) -> Optional[str]:
     try:
         import mammoth  # lazy import
@@ -160,7 +247,12 @@ def _docx_to_html_body(path: Path) -> Optional[str]:
         with open(path, "rb") as f:
             result = mammoth.convert_to_html(f, convert_image=_make_image_converter())
         body = result.value
-        return body or None
+        if not body:
+            return None
+        dims = _extract_docx_image_dims(path)
+        if dims:
+            body = _apply_image_dims(body, dims)
+        return body
     except Exception as exc:  # noqa: BLE001
         logger.warning("mammoth failed on %s: %s", path, exc)
         return None
@@ -570,6 +662,7 @@ main.cf-main {
 .document-content svg {
     max-width: 100%;
     height: auto;
+    max-height: 85vh;
     display: block;
     margin: 16px auto;
     border: 1px solid #ddd;

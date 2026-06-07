@@ -175,6 +175,7 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --collect-all mammoth ^
   --collect-all bs4 ^
   --collect-all win32com ^
+  --collect-all PIL ^
   --collect-submodules stdharvest ^
   --collect-submodules stdsearch ^
   --collect-submodules standarddocapp ^
@@ -319,6 +320,19 @@ start explorer.exe
 
 そのため `python -m playwright install chromium` 等の追加コマンドは不要です。
 実行前に Excel / Word / PowerPoint は **保存して閉じてから** 走らせてください。
+
+### Word/PowerPoint 内画像の HTML 表示について (EMF/WMF 対策)
+
+Word 文書（特に 3GPP）には、グラフや数式が **EMF / WMF（Windows メタファイル）**
+で貼り付けられていることが多く、そのままでは HTML（ブラウザ）で画像が表示
+できません。本アプリは Word を簡易 HTML 本文化する際、文書内の **EMF / WMF
+などブラウザ非対応の画像を自動的に PNG へ変換**して埋め込みます（Windows 上の
+Pillow による描画。150 dpi）。PNG / JPEG など元々ブラウザ対応の画像はそのまま
+埋め込みます。PowerPoint はスライド全体を PNG 画像として書き出すため、元々
+正しく表示されます。
+
+> 画像変換には `pillow` を使用します（`stdharvest` の依存に追加済み。
+> editable install / exe ビルドのいずれでも自動的に導入されます）。
 
 ### 配布先 PC の前提条件
 
